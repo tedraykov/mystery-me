@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { roleMarker } from "./format";
+import { token } from "./ids";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS games (
@@ -12,10 +13,20 @@ CREATE TABLE IF NOT EXISTS games (
   phase       TEXT NOT NULL DEFAULT 'setup',
   solution    TEXT NOT NULL DEFAULT '',
   intro       TEXT NOT NULL DEFAULT '',
+  -- The language the mystery is written in; every other language is a translation of it.
+  language    TEXT NOT NULL DEFAULT 'en',
   -- Clue timer: when the current 25-minute round started (NULL until the game is played),
   -- and how many of the victim's clues have been read so far.
   clue_round_started_at INTEGER,
   clues_read  INTEGER NOT NULL DEFAULT 0,
+  -- How many rounds the host has released to the players; 0 = only the starting information.
+  current_round INTEGER NOT NULL DEFAULT 0,
+  -- Secret in the presenter (TV) link; the TV has no player cookie.
+  present_token TEXT NOT NULL DEFAULT '',
+  -- The narration the host last started on the presenter: which part (0 = the intro, N = round N)
+  -- and a counter that changes on every start, so starting the same part again plays it again.
+  narration_segment INTEGER,
+  narration_seq INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -51,6 +62,29 @@ CREATE TABLE IF NOT EXISTS votes (
   created_at    INTEGER NOT NULL,
   PRIMARY KEY (game_id, player_id)
 );
+
+-- Machine translations of a game's story, one row per language. source_hash is a hash of the
+-- original text the row was translated from: when it no longer matches, the row is stale.
+CREATE TABLE IF NOT EXISTS game_translations (
+  game_id      TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  language     TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  intro        TEXT NOT NULL,
+  solution     TEXT NOT NULL,
+  source_hash  TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (game_id, language)
+);
+
+CREATE TABLE IF NOT EXISTS character_translations (
+  character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  language     TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  source_hash  TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (character_id, language)
+);
 `;
 
 export function dataDir(): string {
@@ -70,6 +104,21 @@ function migrate(db: DatabaseSync): void {
   if (!hasColumn(db, "games", "clue_round_started_at")) {
     db.exec("ALTER TABLE games ADD COLUMN clue_round_started_at INTEGER");
     db.exec("ALTER TABLE games ADD COLUMN clues_read INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(db, "games", "current_round")) {
+    db.exec("ALTER TABLE games ADD COLUMN current_round INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(db, "games", "present_token")) {
+    db.exec("ALTER TABLE games ADD COLUMN present_token TEXT NOT NULL DEFAULT ''");
+    db.exec("ALTER TABLE games ADD COLUMN narration_segment INTEGER");
+    db.exec("ALTER TABLE games ADD COLUMN narration_seq INTEGER NOT NULL DEFAULT 0");
+  }
+  for (const g of db.prepare("SELECT id FROM games WHERE present_token = ''").all() as { id: string }[]) {
+    db.prepare("UPDATE games SET present_token = ? WHERE id = ?").run(token(), g.id);
+  }
+  if (!hasColumn(db, "games", "language")) {
+    // Every game made before languages existed was written in Bulgarian.
+    db.exec("ALTER TABLE games ADD COLUMN language TEXT NOT NULL DEFAULT 'bg'");
   }
   if (!hasColumn(db, "characters", "is_victim")) {
     db.exec("ALTER TABLE characters ADD COLUMN is_victim INTEGER NOT NULL DEFAULT 0");
@@ -114,7 +163,7 @@ function migrate(db: DatabaseSync): void {
     }
   }
 
-  // Killer and victim come from the description's first word ("УБИЕЦ" / "УБИТ"). Recompute them
+  // Killer and victim come from the description's first word ("KILLER" / "VICTIM"). Recompute them
   // on boot so rows saved before that rule (or under an older word list) agree with it.
   const rows = db.prepare("SELECT id, description FROM characters").all() as {
     id: string;

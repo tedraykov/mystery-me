@@ -1,6 +1,8 @@
-import { isHost } from "./auth";
 import { all, get } from "./db";
-import { CLUE_INTERVAL_MS, victimClues } from "./format";
+import { CLUE_INTERVAL_MS, roundCount, splitRounds, victimClues } from "./format";
+import type { Locale } from "./i18n/locales";
+import { type Localized, localize } from "./localize";
+import { localSegment, localTitle, segments } from "./narration";
 import { audioUrl, ttsEnabled } from "./tts";
 import type {
   CharacterRow,
@@ -9,7 +11,7 @@ import type {
   HostView,
   PlayerRow,
   PlayerView,
-  SetupView,
+  PresenterView,
   VoteRow,
 } from "./types";
 
@@ -28,8 +30,20 @@ function claimedIds(gameId: string): Set<string> {
   return new Set(rows.map((r) => r.character_id));
 }
 
-export function buildPlayerView(game: GameRow, player: PlayerRow): PlayerView {
-  const cast = characters(game.id);
+/** Route that reads the intro aloud in `locale`. */
+const introAudioRoute = (code: string, locale: Locale) =>
+  `/api/games/${code}/audio/intro?lang=${locale}`;
+
+/** What a player may read of their description: the start, and only the rounds released so far. */
+function myText(description: string, currentRound: number) {
+  const { initial, rounds } = splitRounds(description);
+  return { description: initial, rounds: rounds.filter((r) => r.number <= currentRound) };
+}
+
+export function buildPlayerView(game: GameRow, player: PlayerRow, locale: Locale): PlayerView {
+  // Players can't see anything but the title during setup, so nothing is translated before then.
+  const local = localize(game, characters(game.id), locale, { start: game.phase !== "setup" });
+  const cast = local.characters;
   const claimed = claimedIds(game.id);
   const revealed = game.phase === "revealed";
 
@@ -41,7 +55,9 @@ export function buildPlayerView(game: GameRow, player: PlayerRow): PlayerView {
     player.id,
   );
 
-  const intro = game.phase === "setup" ? "" : game.intro;
+  const story = splitRounds(game.phase === "setup" ? "" : local.game.intro);
+  const intro = story.initial;
+  const introRounds = story.rounds.filter((r) => r.number <= game.current_round && r.text);
 
   const tally = revealed
     ? all<{ character_id: string; n: number }>(
@@ -54,19 +70,22 @@ export function buildPlayerView(game: GameRow, player: PlayerRow): PlayerView {
     view: "player",
     game: {
       code: game.code,
-      title: game.title,
+      title: local.game.title,
       phase: game.phase,
       updatedAt: game.updated_at,
+      round: { current: game.current_round, total: roundCount([...cast.map((c) => c.description), game.intro]) },
     },
     playerId: player.id,
+    story: local.story,
     intro,
-    introAudio: audioUrl(`/api/games/${game.code}/audio/intro`, intro),
+    introRounds,
+    introAudio: audioUrl(introAudioRoute(game.code, locale), intro),
     me: mine && {
       id: mine.id,
       name: mine.name,
       claimed: true,
       isVictim: mine.is_victim === 1,
-      description: mine.description,
+      ...myText(mine.description, game.current_round),
     },
     cast: cast.map((c) => ({
       id: c.id,
@@ -75,20 +94,36 @@ export function buildPlayerView(game: GameRow, player: PlayerRow): PlayerView {
       isVictim: c.is_victim === 1,
     })),
     myVote: vote ? { characterId: vote.character_id, reason: vote.reason } : null,
-    solution: revealed ? game.solution : null,
+    solution: revealed ? local.game.solution : null,
     culpritIds: revealed ? cast.filter((c) => c.is_culprit === 1).map((c) => c.id) : null,
     tally,
   };
 }
 
-/** Route that reads the victim's clue number `n` (1-based) aloud. */
-export const clueAudioRoute = (code: string, n: number) => `/api/games/${code}/audio/clue/${n}`;
+/** Route that reads the victim's clue number `n` (1-based) aloud in `locale`. */
+const clueAudioRoute = (code: string, n: number, locale: Locale) =>
+  `/api/games/${code}/audio/clue/${n}?lang=${locale}`;
 
-function clueTimer(game: GameRow, cast: CharacterRow[]): ClueTimer | null {
-  const victim = cast.find((c) => c.is_victim === 1);
-  if (!victim || game.phase !== "playing" || game.clue_round_started_at === null) return null;
+/**
+ * The victim's clues in the shown language. If a translation came back with a different number
+ * of clue paragraphs, the original ones are used so clue N is always the same clue.
+ */
+export function localClues(original: CharacterRow, shown: CharacterRow): string[] {
+  const clues = victimClues(original.description);
+  const local = victimClues(shown.description);
+  return local.length === clues.length ? local : clues;
+}
 
-  const clues = victimClues(victim.description);
+function clueTimer(
+  game: GameRow,
+  original: CharacterRow[],
+  local: Localized,
+  locale: Locale,
+): ClueTimer | null {
+  const i = local.characters.findIndex((c) => c.is_victim === 1);
+  if (i < 0 || game.phase !== "playing" || game.clue_round_started_at === null) return null;
+
+  const clues = localClues(original[i], local.characters[i]);
   const nextIndex = game.clues_read;
   const nextText = clues[nextIndex];
   return {
@@ -103,13 +138,15 @@ function clueTimer(game: GameRow, cast: CharacterRow[]): ClueTimer | null {
         : {
             number: nextIndex + 1,
             text: nextText,
-            audio: audioUrl(clueAudioRoute(game.code, nextIndex + 1), nextText),
+            audio: audioUrl(clueAudioRoute(game.code, nextIndex + 1, locale), nextText),
           },
   };
 }
 
-export function buildHostView(game: GameRow): HostView {
-  const cast = characters(game.id);
+export function buildHostView(game: GameRow, locale: Locale): HostView {
+  const original = characters(game.id);
+  const local = localize(game, original, locale);
+  const cast = local.characters;
   const claimed = claimedIds(game.id);
   const byId = new Map(cast.map((c) => [c.id, c]));
 
@@ -126,17 +163,35 @@ export function buildHostView(game: GameRow): HostView {
     view: "host",
     game: {
       code: game.code,
-      title: game.title,
+      title: local.game.title,
       phase: game.phase,
-      solution: game.solution,
-      intro: game.intro,
+      solution: local.game.solution,
+      intro: local.game.intro,
       cluesRead: game.clues_read,
+      round: {
+        current: game.current_round,
+        total: roundCount([...original.map((c) => c.description), game.intro]),
+      },
+      presenterToken: game.present_token,
+      narration: {
+        segments: segments(game.intro),
+        active:
+          game.narration_segment === null
+            ? null
+            : { segment: game.narration_segment, seq: game.narration_seq },
+      },
       updatedAt: game.updated_at,
+      original: { title: game.title, intro: game.intro, solution: game.solution },
     },
-    introAudio: audioUrl(`/api/games/${game.code}/audio/intro`, game.intro),
+    story: local.story,
+    introAudio: audioUrl(introAudioRoute(game.code, locale), splitRounds(local.game.intro).initial),
     tts: ttsEnabled(),
-    characters: cast.map((c) => ({ ...c, claimed: claimed.has(c.id) })),
-    timer: clueTimer(game, cast),
+    characters: cast.map((c, i) => ({
+      ...c,
+      claimed: claimed.has(c.id),
+      original: { name: original[i].name, description: original[i].description },
+    })),
+    timer: clueTimer(game, original, local, locale),
     playerCount: (
       get<{ n: number }>("SELECT COUNT(*) AS n FROM players WHERE game_id = ?", game.id) ?? {
         n: 0,
@@ -154,47 +209,45 @@ export function buildHostView(game: GameRow): HostView {
   };
 }
 
-/** The creator's view: names only. Descriptions and the killer stay hidden — they may be playing. */
-export function buildSetupView(game: GameRow): SetupView {
+/** Route that reads part `n` of the story aloud on the presenter. */
+const narrationRoute = (code: string, n: number, locale: Locale, key: string) =>
+  `/api/games/${code}/audio/narration/${n}?lang=${locale}&k=${key}`;
+
+/** The TV's view: the game's public face and the narration the host last started. */
+export function buildPresenterView(game: GameRow, locale: Locale): PresenterView {
   const cast = characters(game.id);
-  const claimed = claimedIds(game.id);
-  const victim = cast.find((c) => c.is_victim === 1);
+  const segment = game.narration_segment;
+  // Only released parts are sent, so the TV can't show what the host hasn't opened yet.
+  const text =
+    segment !== null && segment <= game.current_round ? localSegment(game, locale, segment) : "";
   return {
-    view: "setup",
+    view: "presenter",
     game: {
       code: game.code,
       title: game.title,
       phase: game.phase,
-      intro: game.intro,
-      updatedAt: game.updated_at,
+      round: {
+        current: game.current_round,
+        total: roundCount([...cast.map((c) => c.description), game.intro]),
+      },
+      playerCount: (
+        get<{ n: number }>("SELECT COUNT(*) AS n FROM players WHERE game_id = ?", game.id) ?? {
+          n: 0,
+        }
+      ).n,
     },
-    introAudio: audioUrl(`/api/games/${game.code}/audio/intro`, game.intro),
-    tts: ttsEnabled(),
-    characters: cast.map((c) => ({
-      id: c.id,
-      name: c.name,
-      claimed: claimed.has(c.id),
-      isVictim: c.is_victim === 1,
-      empty: !c.description.trim(),
-    })),
-    victimCount: cast.filter((c) => c.is_victim === 1).length,
-    culpritCount: cast.filter((c) => c.is_culprit === 1).length,
-    hasSolution: game.solution.trim() !== "",
-    playerCount: (
-      get<{ n: number }>("SELECT COUNT(*) AS n FROM players WHERE game_id = ?", game.id) ?? {
-        n: 0,
-      }
-    ).n,
-    hostName: victim && claimed.has(victim.id) ? victim.name : null,
+    cue:
+      segment !== null && text
+        ? {
+            seq: game.narration_seq,
+            segment,
+            title: localTitle(game, locale, segment),
+            text,
+            audio: audioUrl(narrationRoute(game.code, segment, locale, game.present_token), text),
+          }
+        : null,
   };
 }
 
-/** A player's view — or the host's, if that player holds the victim's role. */
-export function viewForPlayer(game: GameRow, player: PlayerRow): PlayerView | HostView {
-  return isHost(game, player) ? buildHostView(game) : buildPlayerView(game, player);
-}
-
-/** What a creator or host sees after they change something. */
-export function editorView(game: GameRow, actor: "creator" | "host"): SetupView | HostView {
-  return actor === "creator" ? buildSetupView(game) : buildHostView(game);
-}
+/** What the game master sees after they change something. */
+export const editorView = buildHostView;

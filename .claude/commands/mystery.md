@@ -1,6 +1,6 @@
 ---
 description: Generate a murder mystery for a list of guests and upload it as a new game
-argument-hint: Иван, Ива, Тео, Мария [--victim Иван] [--notes "…"] [--title "…"]
+argument-hint: Ivan, Iva, Theo, Maria [--victim Ivan] [--lang en|bg] [--notes "…"] [--title "…"]
 allowed-tools: Bash(npm run mystery:*)
 ---
 

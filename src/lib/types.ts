@@ -1,3 +1,6 @@
+import type { RoundText } from "./format";
+import type { Locale } from "./i18n/locales";
+
 export type Phase = "setup" | "lobby" | "playing" | "voting" | "revealed";
 
 export const PHASES: Phase[] = ["setup", "lobby", "playing", "voting", "revealed"];
@@ -10,8 +13,13 @@ export interface GameRow {
   phase: Phase;
   solution: string;
   intro: string;
+  language: Locale;
   clue_round_started_at: number | null;
   clues_read: number;
+  current_round: number;
+  present_token: string;
+  narration_segment: number | null;
+  narration_seq: number;
   created_at: number;
   updated_at: number;
 }
@@ -55,14 +63,40 @@ export interface CharacterPublic {
 /** Everything the owning player (or the GM) may read. */
 export interface CharacterPrivate extends CharacterPublic {
   description: string;
+  /** Rounds the host has released so far — later ones are never sent to a player. */
+  rounds?: RoundText[];
+}
+
+/**
+ * How the story's text reached this viewer: as written, or translated into their language.
+ * "translating" and "failed" fall back to the original until a translation is saved.
+ */
+export type TranslationStatus = "original" | "translated" | "translating" | "unavailable" | "failed";
+
+export interface StoryLanguage {
+  /** The language the mystery is written in. */
+  source: Locale;
+  /** The language this view asked for. */
+  shown: Locale;
+  status: TranslationStatus;
 }
 
 export interface PlayerView {
   view: "player";
-  game: { code: string; title: string; phase: Phase; updatedAt: number };
+  game: {
+    code: string;
+    title: string;
+    phase: Phase;
+    updatedAt: number;
+    /** Rounds released to the players, out of all the rounds the characters have. */
+    round: { current: number; total: number };
+  };
   playerId: string;
-  /** Empty until the game leaves setup. */
+  story: StoryLanguage;
+  /** The opening story. Empty until the game leaves setup. */
   intro: string;
+  /** The story's later parts, once released — what everyone learns as the rounds go on. */
+  introRounds: RoundText[];
   introAudio: string | null;
   me: CharacterPrivate | null;
   cast: CharacterPublic[];
@@ -79,13 +113,13 @@ export interface ClueTimer {
   serverNow: number;
   intervalMs: number;
   cluesRead: number;
-  /** Clues found in the victim's description (paragraphs starting with "Улика"). */
+  /** Clues found in the victim's description (paragraphs starting with "Clue" / "Улика"). */
   total: number;
   next: { number: number; text: string; audio: string | null } | null;
 }
 
 /**
- * The player holding the victim's role: they run the game and are the only one who sees every
+ * The game master — whoever created the game: runs it, writes and edits everything, and sees every
  * character's description.
  */
 export interface HostView {
@@ -97,11 +131,22 @@ export interface HostView {
     solution: string;
     intro: string;
     cluesRead: number;
+    round: { current: number; total: number };
+    /** Secret key of the presenter (TV) link. */
+    presenterToken: string;
+    /** The parts of the story that can be narrated on the presenter, and which one last started. */
+    narration: {
+      segments: { number: number; title: string }[];
+      active: { segment: number; seq: number } | null;
+    };
     updatedAt: number;
+    /** The text as written — what the editors change. The fields above are in `story.shown`. */
+    original: { title: string; intro: string; solution: string };
   };
+  story: StoryLanguage;
   introAudio: string | null;
   tts: boolean;
-  characters: (CharacterRow & { claimed: boolean })[];
+  characters: (CharacterRow & { claimed: boolean; original: { name: string; description: string } })[];
   /** Present while the game is being played. */
   timer: ClueTimer | null;
   playerCount: number;
@@ -109,33 +154,24 @@ export interface HostView {
   voterCount: number;
 }
 
-/** A character as the creator sees it: never its description or whether it is the killer. */
-export interface SetupCharacter {
-  id: string;
-  name: string;
-  claimed: boolean;
-  /** Public anyway — everyone sees who the victim is once they join. */
-  isVictim: boolean;
-  empty: boolean;
+/** What the TV shows: only what everyone may know, never anyone's role. */
+export interface PresenterView {
+  view: "presenter";
+  game: {
+    code: string;
+    title: string;
+    phase: Phase;
+    round: { current: number; total: number };
+    playerCount: number;
+  };
+  /** The part of the story being narrated now; it changes `seq` every time the host starts one. */
+  cue: {
+    seq: number;
+    segment: number;
+    title: string;
+    text: string;
+    audio: string | null;
+  } | null;
 }
 
-/**
- * Whoever created the game uploads the characters blind — they may be playing too. They see
- * names and whether a victim and a killer were recognised, never who the killer is.
- */
-export interface SetupView {
-  view: "setup";
-  game: { code: string; title: string; phase: Phase; intro: string; updatedAt: number };
-  introAudio: string | null;
-  tts: boolean;
-  characters: SetupCharacter[];
-  victimCount: number;
-  culpritCount: number;
-  /** Whether a solution was uploaded — its text is never sent to the creator. */
-  hasSolution: boolean;
-  playerCount: number;
-  /** Name of the victim's character once a player has picked it — that player runs the game. */
-  hostName: string | null;
-}
-
-export type GameView = PlayerView | HostView | SetupView;
+export type GameView = PlayerView | HostView;

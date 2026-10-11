@@ -1,20 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n/client";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, nameFromFile, readText } from "@/lib/textFile";
 
 const ADDED_IN_THIS_BATCH = "";
 
-/** Files with these names fill the game's intro / solution instead of adding a character. */
-const GAME_FILES: Record<string, { field: "intro" | "solution"; label: string; max: number }> = {
-  увод: { field: "intro", label: "увод", max: 10000 },
-  решение: { field: "solution", label: "решение", max: MAX_DESCRIPTION },
+/**
+ * Files with these names (in any supported language) fill the game's intro / solution instead of
+ * adding a character.
+ */
+const GAME_FILES: Record<string, { field: "intro" | "solution"; max: number }> = {
+  intro: { field: "intro", max: 10000 },
+  увод: { field: "intro", max: 10000 },
+  solution: { field: "solution", max: MAX_DESCRIPTION },
+  решение: { field: "solution", max: MAX_DESCRIPTION },
 };
 
 /**
  * Bulk upload: one character per .txt file — the file name is the name, the contents the
  * description. A file named like an existing character updates it instead of adding a duplicate.
- * „Увод.txt“ and „Решение.txt“ set the intro story and the solution.
+ * "Intro.txt" and "Solution.txt" ("Увод.txt", "Решение.txt") set the intro story and the solution.
  */
 export function ImportTxt({
   characters,
@@ -28,6 +34,7 @@ export function ImportTxt({
   save: (id: string | null, name: string, description: string) => Promise<boolean>;
   saveGame: (field: "intro" | "solution", text: string) => Promise<boolean>;
 }) {
+  const t = useT();
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function importFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -47,34 +54,35 @@ export function ImportTxt({
     for (const file of files) {
       const name = nameFromFile(file);
       if (!name || file.size > MAX_FILE_BYTES) {
-        problems.push(`„${file.name}“ — твърде голям или без име`);
+        problems.push(t("import.tooBig", { file: file.name }));
         continue;
       }
       const text = await readText(file);
       if (!text) {
-        problems.push(`„${file.name}“ — празен`);
+        problems.push(t("import.empty", { file: file.name }));
         continue;
       }
       const gameFile = GAME_FILES[name.toLowerCase()];
       if (gameFile) {
         if (text.length > gameFile.max) {
-          problems.push(`„${file.name}“ — отрязан до ${gameFile.max} знака`);
+          problems.push(t("import.truncated", { file: file.name, max: gameFile.max }));
         }
-        if (await saveGame(gameFile.field, text.slice(0, gameFile.max))) gameParts.push(gameFile.label);
-        else problems.push(`„${file.name}“ — не се запази`);
+        if (await saveGame(gameFile.field, text.slice(0, gameFile.max))) {
+          gameParts.push(t(`import.${gameFile.field}`));
+        } else problems.push(t("import.notSaved", { file: file.name }));
         continue;
       }
 
       const id = existing.get(name.toLowerCase());
       if (id === ADDED_IN_THIS_BATCH) {
-        problems.push(`„${file.name}“ — още един файл със същото име, пропуснат`);
+        problems.push(t("import.duplicate", { file: file.name }));
         continue;
       }
       if (text.length > MAX_DESCRIPTION) {
-        problems.push(`„${file.name}“ — отрязан до ${MAX_DESCRIPTION} знака`);
+        problems.push(t("import.truncated", { file: file.name, max: MAX_DESCRIPTION }));
       }
       if (!(await save(id ?? null, name, text.slice(0, MAX_DESCRIPTION)))) {
-        problems.push(`„${file.name}“ — не се запази`);
+        problems.push(t("import.notSaved", { file: file.name }));
         continue;
       }
       if (id) updated++;
@@ -84,14 +92,17 @@ export function ImportTxt({
       }
     }
 
-    const summary = [added && `добавени ${added}`, updated && `обновени ${updated}`]
+    const summary = [
+      added && t("import.added", { count: added }),
+      updated && t("import.updated", { count: updated }),
+    ]
       .filter(Boolean)
       .join(", ");
     setNote({
       ok: problems.length === 0,
       text: [
-        summary && `✓ Героите са ${summary}.`,
-        gameParts.length > 0 && `✓ Качени: ${gameParts.join(", ")}.`,
+        summary && t("import.charactersDone", { summary }),
+        gameParts.length > 0 && t("import.uploaded", { parts: gameParts.join(", ") }),
         ...problems,
       ]
         .filter(Boolean)
@@ -103,7 +114,7 @@ export function ImportTxt({
     <div className="stack-sm">
       {note && <span className={note.ok ? "hint" : "hint hint-warn"}>{note.text}</span>}
       <label className="btn" aria-disabled={busy}>
-        📂 Качи .txt файлове
+        {t("import.button")}
         <input
           type="file"
           accept=".txt,text/plain"

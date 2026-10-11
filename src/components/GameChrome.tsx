@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { PHASE_HINT, PHASE_LABEL } from "@/lib/format";
-import { PHASES, type Phase } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { PHASES, type Phase, type StoryLanguage } from "@/lib/types";
 
 export type Send = (
   path: string,
@@ -20,6 +20,7 @@ export function JoinLine({
   playerCount: number;
   badge: string;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState<string | null>(null);
   const joinUrl = typeof window === "undefined" ? "" : `${window.location.origin}/game/${code}`;
 
@@ -37,18 +38,18 @@ export function JoinLine({
     <div className="join-line">
       <span className="badge badge-amber">{badge}</span>
       <span>
-        Код <span className="code-chip">{code}</span>
+        {t("chrome.code")} <span className="code-chip">{code}</span>
       </span>
       <button className="link-btn" onClick={() => copy(code, "code")}>
-        {copied === "code" ? "✓ копиран" : "копирай"}
+        {copied === "code" ? t("chrome.copied") : t("chrome.copy")}
       </button>
       <span aria-hidden>·</span>
       <button className="link-btn" onClick={() => copy(joinUrl, "link")}>
-        {copied === "link" ? "✓ копиран" : "копирай линка"}
+        {copied === "link" ? t("chrome.copied") : t("chrome.copyLink")}
       </button>
       <span aria-hidden>·</span>
       <span>
-        👥 {playerCount} {playerCount === 1 ? "играч" : "играчи"}
+        👥 {t("chrome.players", { count: playerCount })}
       </span>
     </div>
   );
@@ -68,6 +69,7 @@ export function PhaseStepper({
   onSelect: (p: Phase) => void;
   hint?: string;
 }) {
+  const t = useT();
   const current = PHASES.indexOf(phase);
   return (
     <div className="panel stack-sm">
@@ -83,14 +85,29 @@ export function PhaseStepper({
                 onClick={() => onSelect(p)}
               >
                 <span className="phase-dot">{i < current ? "✓" : i + 1}</span>
-                <span className="phase-label">{PHASE_LABEL[p]}</span>
+                <span className="phase-label">{t(`phase.${p}`)}</span>
               </button>
             </li>
           );
         })}
       </ol>
-      <p className="phase-now">{PHASE_LABEL[phase]}</p>
-      <p className="hint center">{hint ?? PHASE_HINT[phase]}</p>
+      <p className="phase-now">{t(`phase.${phase}`)}</p>
+      <p className="hint center">{hint ?? t(`phaseHint.${phase}`)}</p>
     </div>
   );
+}
+
+/** Says when the story isn't shown in the viewer's language yet, or why not. */
+export function StoryNotice({ story }: { story: StoryLanguage }) {
+  const t = useT();
+  if (story.status === "original" || story.status === "translated") return null;
+  const key =
+    story.status === "translating"
+      ? "translation.translating"
+      : story.status === "failed"
+        ? "translation.failed"
+        : "translation.unavailable";
+  // "Translating into English…" names the target; "written in Bulgarian" names the source.
+  const language = t(`lang.${story.status === "unavailable" ? story.source : story.shown}`);
+  return <div className="notice">{t(key, { language })}</div>;
 }

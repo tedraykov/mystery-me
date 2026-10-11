@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { CharacterCard } from "@/components/CharacterCard";
-import { HostDashboard } from "@/components/HostDashboard";
+import { StoryNotice } from "@/components/GameChrome";
 import { ReadAloud } from "@/components/ReadAloud";
-import { PHASE_LABEL, initial, paragraphs } from "@/lib/format";
+import { initial, paragraphs } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { mutate, useGameState } from "@/lib/useGameState";
 import type { PlayerView } from "@/lib/types";
 
@@ -13,6 +14,7 @@ type Tab = "story" | "role" | "cast";
 
 export function PlayerGame({ code }: { code: string }) {
   const { state, error, loading, apply } = useGameState(code);
+  const t = useT();
   const [tabChoice, setTab] = useState<Tab>("role");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -20,21 +22,18 @@ export function PlayerGame({ code }: { code: string }) {
   if (loading) {
     return (
       <main className="shell center" style={{ paddingTop: 80 }}>
-        <p className="muted">Отваряме досието…</p>
+        <p className="muted">{t("player.loading")}</p>
       </main>
     );
   }
-
-  // Whoever holds the victim's role runs the game from here.
-  if (state?.view === "host") return <HostDashboard code={code} view={state} apply={apply} />;
 
   if (error || !state || state.view !== "player") {
     return (
       <main className="shell stack center" style={{ paddingTop: 70 }}>
         <h1>🚪</h1>
-        <p className="alert">{error ?? "Тази игра не е достъпна от тук."}</p>
+        <p className="alert">{error ?? t("player.unavailable")}</p>
         <Link href="/" className="btn">
-          Към началото
+          {t("player.home")}
         </Link>
       </main>
     );
@@ -65,8 +64,8 @@ export function PlayerGame({ code }: { code: string }) {
       <main className="shell stack center" style={{ paddingTop: 60 }}>
         <div className="eyebrow">{v.game.code}</div>
         <h1>{v.game.title}</h1>
-        <p className="muted">🕯️ Водещият още подготвя случая. Остани на тази страница.</p>
-        <p className="faint">Страницата се обновява сама.</p>
+        <p className="muted">{t("player.preparing")}</p>
+        <p className="faint">{t("player.autoRefresh")}</p>
       </main>
     );
   }
@@ -76,36 +75,35 @@ export function PlayerGame({ code }: { code: string }) {
     return (
       <main className="shell stack">
         <GameHeader view={v} />
+        <StoryNotice story={v.story} />
         <IntroPanel view={v} />
         <div className="panel stack">
-          <div className="eyebrow">Стъпка 1</div>
-          <h2>Кой си ти?</h2>
-          <p className="muted">
-            Избери своя герой. Само ти ще виждаш неговата история, тайна и цел.
-          </p>
+          <div className="eyebrow">{t("player.step1")}</div>
+          <h2>{t("player.whoAreYou")}</h2>
+          <p className="muted">{t("player.pickHint")}</p>
           {actionError && <div className="alert">{actionError}</div>}
           {v.cast.length === 0 ? (
-            <div className="notice">Още няма добавени герои.</div>
+            <div className="notice">{t("player.noCharacters")}</div>
           ) : (
             <div className="pick">
               {v.cast.map((c) => (
                 <button
                   key={c.id}
                   className="pick-item"
-                  disabled={c.claimed || busy !== null}
+                  disabled={c.claimed || c.isVictim || busy !== null}
                   onClick={() => claim(c.id)}
                 >
                   <span className="em">{initial(c.name)}</span>
                   <span className="stack" style={{ gap: 2, flex: 1 }}>
                     <span className="nm">{c.name}</span>
                     {c.isVictim && (
-                      <span className="faint">☠️ Убитият — който го избере, води играта</span>
+                      <span className="faint">{t("player.victimPick")}</span>
                     )}
                   </span>
-                  {c.claimed ? (
-                    <span className="badge">Заето</span>
+                  {c.isVictim ? null : c.claimed ? (
+                    <span className="badge">{t("player.taken")}</span>
                   ) : (
-                    <span className="badge badge-amber">Това съм аз</span>
+                    <span className="badge badge-amber">{t("player.thisIsMe")}</span>
                   )}
                 </button>
               ))}
@@ -119,22 +117,24 @@ export function PlayerGame({ code }: { code: string }) {
   /* ── In game ─────────────────────────────────────────────────── */
   const me = v.me;
   // The story tab only exists while there is an intro.
-  const tab = tabChoice === "story" && !v.intro.trim() ? "role" : tabChoice;
+  const hasStory = v.intro.trim() !== "" || v.introRounds.length > 0;
+  const tab = tabChoice === "story" && !hasStory ? "role" : tabChoice;
   return (
     <main className="shell stack">
       <GameHeader view={v} />
+      <StoryNotice story={v.story} />
 
       <div className="tabs" role="tablist">
-        {v.intro.trim() && (
+        {hasStory && (
           <button role="tab" aria-selected={tab === "story"} className="tab" onClick={() => setTab("story")}>
-            Историята
+            {t("player.tabStory")}
           </button>
         )}
         <button role="tab" aria-selected={tab === "role"} className="tab" onClick={() => setTab("role")}>
-          Моята роля
+          {t("player.tabRole")}
         </button>
         <button role="tab" aria-selected={tab === "cast"} className="tab" onClick={() => setTab("cast")}>
-          Кой кой е
+          {t("player.tabCast")}
         </button>
       </div>
 
@@ -146,7 +146,7 @@ export function PlayerGame({ code }: { code: string }) {
         <>
           <CharacterCard c={me} />
           <button className="btn btn-ghost btn-sm" onClick={release} disabled={busy !== null}>
-            Това не е моята роля — освободи я
+            {t("player.release")}
           </button>
         </>
       )}
@@ -159,8 +159,8 @@ export function PlayerGame({ code }: { code: string }) {
               <span className="nm" style={{ flex: 1 }}>
                 {c.name}
               </span>
-              {c.id === me.id && <span className="badge badge-amber">Ти</span>}
-              {c.isVictim && <span className="badge badge-violet">☠️ Убитият</span>}
+              {c.id === me.id && <span className="badge badge-amber">{t("player.you")}</span>}
+              {c.isVictim && <span className="badge badge-violet">{t("player.victim")}</span>}
             </div>
           ))}
         </div>
@@ -173,11 +173,12 @@ export function PlayerGame({ code }: { code: string }) {
 }
 
 function GameHeader({ view }: { view: PlayerView }) {
+  const t = useT();
   return (
     <header className="stack-sm" style={{ marginTop: 8 }}>
       <div className="row row-tight">
         <span className="badge">{view.game.code}</span>
-        <span className="badge badge-amber">{PHASE_LABEL[view.game.phase]}</span>
+        <span className="badge badge-amber">{t(`phase.${view.game.phase}`)}</span>
       </div>
       <h1>{view.game.title}</h1>
     </header>
@@ -185,11 +186,12 @@ function GameHeader({ view }: { view: PlayerView }) {
 }
 
 function IntroPanel({ view }: { view: PlayerView }) {
-  if (!view.intro.trim()) return null;
+  const t = useT();
+  if (!view.intro.trim() && view.introRounds.length === 0) return null;
   return (
     <div className="panel stack-sm">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="eyebrow">📜 Историята</div>
+        <div className="eyebrow">{t("player.storyEyebrow")}</div>
         <ReadAloud src={view.introAudio} />
       </div>
       <div className="section-body">
@@ -197,6 +199,20 @@ function IntroPanel({ view }: { view: PlayerView }) {
           <p key={i}>{p}</p>
         ))}
       </div>
+      {view.introRounds.map((r) => (
+        <div key={r.number} className="stack-sm">
+          <hr className="divider" />
+          <div className="eyebrow">
+            {t("card.round", { number: r.number })}
+            {r.title && ` · ${r.title}`}
+          </div>
+          <div className="section-body">
+            {paragraphs(r.text).map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -210,6 +226,7 @@ function VotePanel({
   code: string;
   apply: (v: PlayerView) => void;
 }) {
+  const t = useT();
   const [choice, setChoice] = useState(view.myVote?.characterId ?? "");
   const [reason, setReason] = useState(view.myVote?.reason ?? "");
   const [busy, setBusy] = useState(false);
@@ -233,16 +250,18 @@ function VotePanel({
 
   return (
     <form className="panel stack" onSubmit={submit}>
-      <div className="eyebrow">Финал</div>
-      <h2>⚖️ Кой го е направил?</h2>
+      <div className="eyebrow">{t("vote.eyebrow")}</div>
+      <h2>{t("vote.heading")}</h2>
       {view.myVote && !saved && (
-        <div className="notice">Гласувал си за {nameOf(view, view.myVote.characterId)}. Можеш да смениш избора си.</div>
+        <div className="notice">
+          {t("vote.already", { name: nameOf(view, view.myVote.characterId) })}
+        </div>
       )}
-      {saved && <div className="notice">✓ Гласът ти е записан.</div>}
+      {saved && <div className="notice">{t("vote.saved")}</div>}
       <label className="field">
-        <span>Твоето обвинение</span>
+        <span>{t("vote.accusation")}</span>
         <select value={choice} onChange={(e) => setChoice(e.target.value)}>
-          <option value="">— избери —</option>
+          <option value="">{t("vote.pick")}</option>
           {view.cast
             .filter((c) => c.id !== view.me?.id && !c.isVictim)
             .map((c) => (
@@ -253,36 +272,37 @@ function VotePanel({
         </select>
       </label>
       <label className="field">
-        <span>Защо? (по желание)</span>
+        <span>{t("vote.why")}</span>
         <textarea
           value={reason}
           maxLength={2000}
-          placeholder="Терасата беше празна в 22:15…"
+          placeholder={t("vote.whyPlaceholder")}
           onChange={(e) => setReason(e.target.value)}
         />
       </label>
       {error && <div className="alert">{error}</div>}
       <button className="btn btn-primary" disabled={busy || !choice}>
-        {busy ? "Записваме…" : view.myVote ? "Смени гласа" : "Обвини"}
+        {busy ? t("vote.saving") : view.myVote ? t("vote.change") : t("vote.accuse")}
       </button>
     </form>
   );
 }
 
 function RevealPanel({ view }: { view: PlayerView }) {
-  const max = Math.max(1, ...(view.tally ?? []).map((t) => t.votes));
+  const t = useT();
+  const max = Math.max(1, ...(view.tally ?? []).map((v) => v.votes));
   const culprits = view.cast.filter((c) => view.culpritIds?.includes(c.id));
 
   return (
     <div className="stack">
       <div className="panel stack">
-        <div className="eyebrow">Разкритие</div>
-        <h2>🕯️ Какво се случи наистина</h2>
+        <div className="eyebrow">{t("reveal.eyebrow")}</div>
+        <h2>{t("reveal.heading")}</h2>
         {culprits.length > 0 && (
           <div className="row row-tight">
             {culprits.map((c) => (
               <span key={c.id} className="badge badge-blood">
-                {c.name} — виновен
+                {t("reveal.guilty", { name: c.name })}
               </span>
             ))}
           </div>
@@ -291,20 +311,20 @@ function RevealPanel({ view }: { view: PlayerView }) {
           {paragraphs(view.solution ?? "").map((p, i) => (
             <p key={i}>{p}</p>
           ))}
-          {!view.solution?.trim() && <p className="muted">Водещият не е записал решение.</p>}
+          {!view.solution?.trim() && <p className="muted">{t("reveal.noSolution")}</p>}
         </div>
       </div>
 
       {view.tally && view.tally.length > 0 && (
         <div className="panel stack-sm">
-          <div className="eyebrow">Гласовете</div>
-          {view.tally.map((t) => (
-            <div key={t.characterId} className="bar-row">
-              <span>{nameOf(view, t.characterId)}</span>
+          <div className="eyebrow">{t("reveal.votes")}</div>
+          {view.tally.map((v) => (
+            <div key={v.characterId} className="bar-row">
+              <span>{nameOf(view, v.characterId)}</span>
               <span className="bar-track">
-                <span className="bar-fill" style={{ width: `${(t.votes / max) * 100}%` }} />
+                <span className="bar-fill" style={{ width: `${(v.votes / max) * 100}%` }} />
               </span>
-              <span className="muted">{t.votes}</span>
+              <span className="muted">{v.votes}</span>
             </div>
           ))}
         </div>

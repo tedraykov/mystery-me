@@ -1,4 +1,7 @@
-import { paragraphs, victimClues } from "@/lib/format";
+"use client";
+
+import { type RoundText, paragraphs, victimClues } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import type { CharacterPrivate } from "@/lib/types";
 
 /**
@@ -6,6 +9,7 @@ import type { CharacterPrivate } from "@/lib/types";
  * dimmed with a tick, the next one highlighted.
  */
 export function CharacterCard({ c, cluesRead }: { c: CharacterPrivate; cluesRead?: number }) {
+  const t = useT();
   const clues = c.isVictim ? victimClues(c.description) : [];
   let clueIndex = 0;
 
@@ -15,7 +19,7 @@ export function CharacterCard({ c, cluesRead }: { c: CharacterPrivate; cluesRead
         <span className="card-name">{c.name}</span>
         {c.isVictim && (
           <div className="card-meta">
-            <span>☠️ Убитият</span>
+            <span>{t("card.victim")}</span>
           </div>
         )}
       </header>
@@ -37,6 +41,30 @@ export function CharacterCard({ c, cluesRead }: { c: CharacterPrivate; cluesRead
           </div>
         </section>
       )}
+
+      {c.rounds?.map((r, i) => (
+        <RoundSection key={r.number} round={r} latest={i === c.rounds!.length - 1} />
+      ))}
     </article>
+  );
+}
+
+function RoundSection({ round, latest }: { round: RoundText; latest: boolean }) {
+  const t = useT();
+  return (
+    <section className="section">
+      <div className="eyebrow row row-tight">
+        <span>
+          {t("card.round", { number: round.number })}
+          {round.title && ` · ${round.title}`}
+        </span>
+        {latest && <span className="badge badge-amber">{t("card.roundNew")}</span>}
+      </div>
+      <div className="section-body">
+        {paragraphs(round.text).map((p, i) => (
+          <p key={i}>{p}</p>
+        ))}
+      </div>
+    </section>
   );
 }

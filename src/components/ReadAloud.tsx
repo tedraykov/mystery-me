@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { MessageKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
 
 // Only one narration plays at a time across the page.
 let playing: HTMLAudioElement | null = null;
 
 type Status = "idle" | "loading" | "playing" | "error";
 
-const LABEL: Record<Status, string> = {
-  idle: "🔊 Чуй",
-  loading: "⏳ Зарежда…",
-  playing: "⏸ Спри",
-  error: "⚠️ Опитай пак",
+const LABEL: Record<Status, MessageKey> = {
+  idle: "audio.listen",
+  loading: "audio.loading",
+  playing: "audio.stop",
+  error: "audio.retry",
 };
 
 /** Play/stop button for a server-narrated text. Renders nothing when narration is off. */
 export function ReadAloud({ src, label }: { src: string | null; label?: string }) {
+  const t = useT();
   const audio = useRef<HTMLAudioElement | null>(null);
   const [status, setStatus] = useState<Status>("idle");
 
@@ -54,7 +57,7 @@ export function ReadAloud({ src, label }: { src: string | null; label?: string }
 
   return (
     <button type="button" className="btn btn-sm" onClick={toggle}>
-      {status === "idle" && label ? `🔊 ${label}` : LABEL[status]}
+      {status === "idle" && label ? `🔊 ${label}` : t(LABEL[status])}
     </button>
   );
 }

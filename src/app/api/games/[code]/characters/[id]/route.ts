@@ -1,6 +1,7 @@
 import { HttpError, errorResponse, requireEditor } from "@/lib/auth";
 import { json, str } from "@/lib/body";
 import { applyRoleMarker, get, run, touchGame } from "@/lib/db";
+import { getLocale } from "@/lib/i18n/server";
 import { editorView } from "@/lib/state";
 
 const TEXT_FIELDS = {
@@ -14,16 +15,16 @@ export async function PATCH(
 ) {
   try {
     const { code, id: characterId } = await ctx.params;
-    const { game, actor } = await requireEditor(req, code);
+    const { game } = await requireEditor(req, code);
     if (!get("SELECT 1 FROM characters WHERE id = ? AND game_id = ?", characterId, game.id)) {
-      throw new HttpError(404, "Няма такъв герой");
+      throw new HttpError(404, "error.noCharacter");
     }
 
     const body = await json(req);
     for (const [field, max] of Object.entries(TEXT_FIELDS)) {
       if (!(field in body)) continue;
       const value = str(body, field, { max });
-      if (field === "name" && !value.trim()) throw new HttpError(400, "Името е задължително");
+      if (field === "name" && !value.trim()) throw new HttpError(400, "error.nameRequired");
       run(`UPDATE characters SET ${field} = ? WHERE id = ?`, value, characterId);
     }
     if ("description" in body) {
@@ -34,7 +35,7 @@ export async function PATCH(
     }
 
     touchGame(game.id);
-    return Response.json(editorView(game, actor));
+    return Response.json(editorView(game, await getLocale()));
   } catch (e) {
     return errorResponse(e);
   }
@@ -46,10 +47,10 @@ export async function DELETE(
 ) {
   try {
     const { code, id: characterId } = await ctx.params;
-    const { game, actor } = await requireEditor(req, code);
+    const { game } = await requireEditor(req, code);
     run("DELETE FROM characters WHERE id = ? AND game_id = ?", characterId, game.id);
     touchGame(game.id);
-    return Response.json(editorView(game, actor));
+    return Response.json(editorView(game, await getLocale()));
   } catch (e) {
     return errorResponse(e);
   }

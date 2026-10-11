@@ -7,17 +7,22 @@ import {
   setPlayerCookie,
 } from "@/lib/auth";
 import { run, touchGame } from "@/lib/db";
+import { getLocale, getT } from "@/lib/i18n/server";
 import { id, token } from "@/lib/ids";
-import { buildSetupView, viewForPlayer } from "@/lib/state";
+import { buildHostView, buildPlayerView } from "@/lib/state";
 
 /** Page bootstrap: resolves who the caller is, joining them as a new player if needed. */
 export async function POST(req: Request, ctx: { params: Promise<{ code: string }> }) {
   try {
     const { code } = await ctx.params;
-    if (asCreator(req)) return Response.json(buildSetupView(await requireCreator(code)));
+    if (asCreator(req)) {
+      return Response.json(buildHostView(await requireCreator(code), await getLocale()));
+    }
 
     const game = findGame(code);
-    if (!game) return Response.json({ error: "Няма игра с този код" }, { status: 404 });
+    if (!game) {
+      return Response.json({ error: (await getT())("error.noGameWithCode") }, { status: 404 });
+    }
 
     let player = await currentPlayer(game);
     if (!player) {
@@ -45,7 +50,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       };
     }
 
-    return Response.json(viewForPlayer(game, player));
+    return Response.json(buildPlayerView(game, player, await getLocale()));
   } catch (e) {
     return errorResponse(e);
   }

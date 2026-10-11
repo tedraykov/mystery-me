@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { all } from "@/lib/db";
-import { PHASE_LABEL, initial } from "@/lib/format";
+import { initial } from "@/lib/format";
+import { getT } from "@/lib/i18n/server";
 import { CreateForm, JoinForm } from "@/components/HomeForms";
 import type { GameRow } from "@/lib/types";
 
@@ -23,43 +24,43 @@ async function myGames(): Promise<GameRow[]> {
 
 export default async function HomePage() {
   const games = await myGames();
+  const t = await getT();
 
   return (
     <main className="shell stack" style={{ gap: 26 }}>
       <header className="center stack-sm" style={{ marginTop: 22, marginBottom: 6 }}>
-        <div className="eyebrow">Игра на загадки за компания</div>
-        <h1>🕯️ Мистерия</h1>
+        <div className="eyebrow">{t("app.tagline")}</div>
+        <h1>🕯️ {t("app.name")}</h1>
         <p className="muted" style={{ maxWidth: 480, margin: "0 auto" }}>
-          Всеки получава роля, история и тайна — вижда само своята. Заедно открийте кой го е
-          направил.
+          {t("home.intro")}
         </p>
       </header>
 
       <div className="panel stack">
-        <div className="eyebrow">Играч</div>
-        <h2>Имаш код?</h2>
+        <div className="eyebrow">{t("home.player")}</div>
+        <h2>{t("home.haveCode")}</h2>
         <JoinForm />
       </div>
 
       <div className="panel stack">
-        <div className="eyebrow">Нова игра</div>
-        <h2>Ще създаваш игра?</h2>
+        <div className="eyebrow">{t("home.newGame")}</div>
+        <h2>{t("home.creating")}</h2>
         <CreateForm />
       </div>
 
       {games.length > 0 && (
         <div className="panel stack-sm">
-          <div className="eyebrow">Игри, които си създал</div>
+          <div className="eyebrow">{t("home.myGames")}</div>
           {games.map((g) => (
             <Link key={g.id} href={`/gm/${g.code}`} className="pick-item" style={{ gap: 12, textDecoration: "none" }}>
               <span className="em">{initial(g.title)}</span>
               <span className="stack" style={{ gap: 2, flex: 1 }}>
                 <span className="nm">{g.title}</span>
                 <span className="faint">
-                  {g.code} · {PHASE_LABEL[g.phase]}
+                  {g.code} · {t(`phase.${g.phase}`)}
                 </span>
               </span>
-              <span className="badge">Отвори</span>
+              <span className="badge">{t("home.open")}</span>
             </Link>
           ))}
         </div>

@@ -13,6 +13,7 @@
     "mystery": "node --env-file-if-exists=.env scripts/generate-mystery.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "next": "16.3.6",
     "react": "19.3.0",
     "react-dom": "19.3.0"

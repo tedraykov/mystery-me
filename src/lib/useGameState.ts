@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocale, useT } from "./i18n/client";
 import type { GameView } from "./types";
 
 interface Result {
@@ -23,17 +24,20 @@ export function useGameState(code: string, pollMs = 3000, asCreator = false): Re
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const ready = useRef(false);
+  const t = useT();
+  // The server builds the view in the language of the cookie, so a switch needs a fresh view.
+  const locale = useLocale();
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/games/${code}/state${query}`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? "Грешка");
+      setError(data.error ?? t("common.error"));
       return;
     }
     setError(null);
     setState(data as GameView);
-  }, [code, query]);
+  }, [code, query, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +50,7 @@ export function useGameState(code: string, pollMs = 3000, asCreator = false): Re
       });
       const data = await res.json();
       if (cancelled) return;
-      if (!res.ok) setError(data.error ?? "Грешка");
+      if (!res.ok) setError(data.error ?? t("common.error"));
       else {
         setState(data as GameView);
         ready.current = true;
@@ -57,7 +61,12 @@ export function useGameState(code: string, pollMs = 3000, asCreator = false): Re
     return () => {
       cancelled = true;
     };
+    // Bootstraps once per game; `t` only words a fallback error.
   }, [code, query]);
+
+  useEffect(() => {
+    if (ready.current) void refresh();
+  }, [locale, refresh]);
 
   useEffect(() => {
     const tick = () => {
@@ -86,6 +95,7 @@ export async function mutate(
     body: body === undefined ? "{}" : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: data.error ?? "Нещо се обърка" };
+  // The server words its errors in the caller's language; the status is a last resort.
+  if (!res.ok) return { ok: false, error: data.error ?? `HTTP ${res.status}` };
   return { ok: true, view: data as GameView };
 }

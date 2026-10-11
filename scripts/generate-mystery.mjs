@@ -3,12 +3,15 @@
  * Generate a murder mystery with your local Claude Code (your subscription, not an API key) and
  * upload it as a new game.
  *
- *   npm run mystery -- Иван, Ива, Тео, Мария [--victim Иван] [--notes "90-те, вила в Боровец"]
+ *   npm run mystery -- Ivan, Iva, Theo, Maria [--victim Ivan] [--notes "the 90s, a mountain villa"]
+ *   npm run mystery -- Иван, Ива, Тео --lang bg                # write it in Bulgarian
  *   npm run mystery -- --from generated/2026-09-27-….json      # re-upload a saved generation
  *
  * The story never goes to the terminal: whoever runs this may be playing. Claude Code runs
  * headless (`claude -p`) with the system prompt in prompts/mystery-generator.md, the result is
  * saved under generated/ and uploaded, and only the game code, names and links are printed.
+ * `--lang` picks the language the story is written in (default English); players reading another
+ * language get it translated by the app.
  *
  * Env: MYSTERY_APP_URL (default https://mistery.tedraykov.me), MYSTERY_PROMPT_FILE,
  *      MYSTERY_MODEL (passed to `claude --model`).
@@ -29,6 +32,12 @@ const PROMPT_FILE = path.resolve(
 // The app reads these limits; see src/lib/textFile.ts and the game PATCH route.
 const MAX_DESCRIPTION = 8000;
 const MAX_INTRO = 10000;
+
+// The words the app recognises in each language; keep in sync with MARKERS in src/lib/format.ts.
+const LANGUAGES = {
+  en: { name: "English", killer: "KILLER", victim: "VICTIM", clue: "Clue", round: "Round" },
+  bg: { name: "Bulgarian", killer: "УБИЕЦ", victim: "УБИТ", clue: "Улика", round: "Рунд" },
+};
 
 const SCHEMA = {
   type: "object",
@@ -58,7 +67,7 @@ function fail(message) {
 /* ── Arguments ──────────────────────────────────────────────────── */
 
 function parseArgs(argv) {
-  const opts = { names: [], victim: "", notes: "", title: "", from: "" };
+  const opts = { names: [], victim: "", notes: "", title: "", from: "", lang: "en" };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -66,9 +75,10 @@ function parseArgs(argv) {
     else if (a === "--notes") opts.notes = argv[++i] ?? "";
     else if (a === "--title") opts.title = argv[++i] ?? "";
     else if (a === "--from") opts.from = argv[++i] ?? "";
+    else if (a === "--lang") opts.lang = (argv[++i] ?? "").toLowerCase();
     else rest.push(a);
   }
-  // "Иван, Ива Петрова, Тео" keeps two-word names; without commas every word is a name.
+  // "Ivan, Iva Petrova, Theo" keeps two-word names; without commas every word is a name.
   const raw = rest.join(" ");
   const parts = /[,\n]/.test(raw) ? raw.split(/[,\n]/) : raw.split(/\s+/);
   opts.names = [...new Set(parts.map((n) => n.trim().normalize("NFC")).filter(Boolean))];
@@ -78,22 +88,24 @@ function parseArgs(argv) {
 /* ── Generation ─────────────────────────────────────────────────── */
 
 /** The app parses the story mechanically, so these rules sit on top of your system prompt. */
-function task({ names, victim, notes }) {
-  return `Създай мистерия за убийство за тези гости. Всеки гост получава точно един герой със същото име:
+function task({ names, victim, notes, lang }) {
+  const L = LANGUAGES[lang];
+  return `Create a murder mystery for these guests. Each guest gets exactly one character with the same name:
 ${names.map((n) => `- ${n}`).join("\n")}
 
-${victim ? `Убитият е ${victim}.` : "Избери сам кой от гостите е убитият."}
-${notes ? `\nБележки от домакина:\n${notes}\n` : ""}
-Приложението чете отговора ти машинно, затова тези правила са задължителни и са с предимство пред всичко останало:
-1. Пиши всичко на български.
-2. \`characters\` съдържа точно по един запис за всеки гост, в същия ред, с \`name\`, копирано точно.
-3. Точно един герой е убитият. Неговото \`description\` започва с думата „УБИТ“ на отделен първи ред. Играчът с тази роля води играта: описанието му му казва, че е убитият и водещ, и съдържа уликите.
-4. Поне един герой е убиецът. Неговото \`description\` започва с „УБИЕЦ“ на отделен първи ред. Никое друго описание не започва с някоя от тези две думи.
-5. Уликите са абзаци в описанието на убития, всеки започва с „Улика 1:“, „Улика 2:“… в реда, в който се четат на глас — по една на всеки 25 минути. Ако системните указания не казват друго, напиши 6 улики. Всяка улика е един абзац, без празни редове вътре. Никой друг абзац не започва с „Улика“.
-6. Всяко описание е обикновен текст — абзаци, разделени с празен ред, без Markdown — до 7000 знака. Това е единственото, което играчът чете: кой е, тайната му, какво знае и целта му.
-7. \`intro\` е историята, която всички четат в началото (обикновен текст, до 9000 знака). Не издава убиеца.
-8. \`solution\` се разкрива накрая: какво се е случило наистина и как уликите сочат убиеца.
-9. \`title\` е кратко заглавие на мистерията.`;
+${victim ? `The victim is ${victim}.` : "Choose which of the guests is the victim."}
+${notes ? `\nNotes from the host:\n${notes}\n` : ""}
+The app reads your answer mechanically, so these rules are mandatory and take precedence over everything else:
+1. Write everything in ${L.name}.
+2. \`characters\` has exactly one entry per guest, in the same order, with \`name\` copied exactly.
+3. Exactly one character is the victim. Their \`description\` starts with the word "${L.victim}" alone on its first line. The player with this role runs the game: their description tells them they are the victim and the host, and holds the clues.
+4. At least one character is the killer. Their \`description\` starts with "${L.killer}" alone on its first line. No other description starts with either of these two words.
+5. The clues are paragraphs of the victim's description, each starting with "${L.clue} 1:", "${L.clue} 2:"… in the order they are read aloud — one every 25 minutes. Unless the system instructions say otherwise, write 6 clues. Each clue is one paragraph with no blank lines inside. No other paragraph starts with "${L.clue}".
+5b. Rounds: after its starting text, every description continues with 3 rounds unless the system instructions say otherwise. A round opens with a line "${L.round} 1", "${L.round} 2"… alone on its line, followed by free-form paragraphs addressed to that player: what they did and observed during this round, what they learn, and what they should do next. The host releases the rounds one at a time, so a round must only rely on information from the starting text and earlier rounds. Every character has the same number of rounds. No other line starts with "${L.round}" followed by a number.
+6. Every description is plain text — paragraphs separated by a blank line, no Markdown — up to 7000 characters. It is all the player reads: who they are, their secret, what they know and their goal.
+7. \`intro\` is the story everyone reads at the start (plain text, up to 9000 characters). It doesn't give away the killer. It is read aloud on a TV, so write it to be heard. After the opening it continues with one public part per round — "${L.round} 1", "${L.round} 2"… alone on a line, same count as the characters' rounds — which everyone hears when that round starts: what happens that all the guests witness (never anything private or revealing the killer).
+8. \`solution\` is revealed at the end: what really happened and how the clues point to the killer.
+9. \`title\` is a short title for the mystery.`;
 }
 
 async function generate(opts) {
@@ -101,9 +113,9 @@ async function generate(opts) {
   try {
     system = readFileSync(PROMPT_FILE, "utf8");
   } catch {
-    fail(`Няма системен промпт в ${path.relative(ROOT, PROMPT_FILE)}.`);
+    fail(`No system prompt at ${path.relative(ROOT, PROMPT_FILE)}.`);
   }
-  if (!system.trim()) fail(`${path.relative(ROOT, PROMPT_FILE)} е празен.`);
+  if (!system.trim()) fail(`${path.relative(ROOT, PROMPT_FILE)} is empty.`);
 
   const args = [
     "-p",
@@ -121,10 +133,10 @@ async function generate(opts) {
   // An API key would take precedence over the subscription login — this runs on the subscription.
   delete env.ANTHROPIC_API_KEY;
 
-  console.error("✍️  Claude пише мистерията (обикновено 2–6 минути)…");
+  console.error("✍️  Claude is writing the mystery (usually 2–6 minutes)…");
   const started = Date.now();
   const ticker = setInterval(() => {
-    console.error(`   …${Math.round((Date.now() - started) / 1000)} с`);
+    console.error(`   …${Math.round((Date.now() - started) / 1000)}s`);
   }, 30_000);
 
   // Run outside the repo so the project's CLAUDE.md and settings don't leak into the story.
@@ -147,12 +159,12 @@ async function generate(opts) {
   try {
     result = JSON.parse(out);
   } catch {
-    fail(`claude не върна резултат (код ${exitCode}).\n${err.trim() || out.trim()}`);
+    fail(`claude returned no result (exit code ${exitCode}).\n${err.trim() || out.trim()}`);
   }
   if (result.is_error || result.subtype !== "success" || !result.structured_output) {
-    fail(`Генерирането не успя: ${result.subtype ?? ""} ${result.result ?? err}`.trim());
+    fail(`Generation failed: ${result.subtype ?? ""} ${result.result ?? err}`.trim());
   }
-  console.error(`   готово за ${Math.round((Date.now() - started) / 1000)} с`);
+  console.error(`   done in ${Math.round((Date.now() - started) / 1000)}s`);
   return result.structured_output;
 }
 
@@ -161,7 +173,7 @@ function matchNames(story, names) {
   const byName = new Map(story.characters.map((c) => [c.name.trim().toLowerCase(), c]));
   const missing = names.filter((n) => !byName.has(n.toLowerCase()));
   if (missing.length > 0) {
-    fail(`Историята няма герои за: ${missing.join(", ")}. Пусни генерирането пак.`);
+    fail(`The story has no characters for: ${missing.join(", ")}. Run the generation again.`);
   }
   return names.map((n) => ({ name: n, description: byName.get(n.toLowerCase()).description }));
 }
@@ -173,7 +185,7 @@ async function call(url, init, what) {
   try {
     res = await fetch(url, init);
   } catch (e) {
-    fail(`${what}: няма връзка с ${APP_URL} (${e.message}).`);
+    fail(`${what}: can't reach ${APP_URL} (${e.message}).`);
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -182,20 +194,24 @@ async function call(url, init, what) {
   return res;
 }
 
-async function upload(story, characters) {
+async function upload(story, characters, lang) {
   const json = { "content-type": "application/json" };
 
   const created = await call(
     `${APP_URL}/api/games`,
-    { method: "POST", headers: json, body: JSON.stringify({ title: story.title }) },
-    "Създаване на играта",
+    {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ title: story.title, language: lang }),
+    },
+    "Creating the game",
   );
   const { code } = await created.json();
   const cookie = created.headers
     .getSetCookie()
     .map((c) => c.split(";")[0])
     .find((c) => c.startsWith(`mm_gm_${code}=`));
-  if (!cookie) fail("Сървърът не върна ключ за създател.");
+  if (!cookie) fail("The server returned no creator key.");
   const key = decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1));
   const headers = { ...json, cookie };
 
@@ -207,7 +223,7 @@ async function upload(story, characters) {
         headers,
         body: JSON.stringify({ name: c.name, description: c.description.slice(0, MAX_DESCRIPTION) }),
       },
-      `Качване на „${c.name}“`,
+      `Uploading “${c.name}”`,
     );
   }
   const setup = await (
@@ -221,7 +237,7 @@ async function upload(story, characters) {
           solution: story.solution.slice(0, MAX_DESCRIPTION),
         }),
       },
-      "Качване на увода и решението",
+      "Uploading the intro and the solution",
     )
   ).json();
 
@@ -236,15 +252,21 @@ let savedTo;
 
 if (opts.from) {
   try {
-    ({ story, names: opts.names } = JSON.parse(readFileSync(path.resolve(opts.from), "utf8")));
+    const saved = JSON.parse(readFileSync(path.resolve(opts.from), "utf8"));
+    ({ story, names: opts.names } = saved);
+    // Copies saved before languages existed are Bulgarian.
+    opts.lang = saved.lang ?? "bg";
   } catch (e) {
-    fail(`Не мога да прочета ${opts.from}: ${e.message}`);
+    fail(`Can't read ${opts.from}: ${e.message}`);
   }
   savedTo = opts.from;
 } else {
-  if (opts.names.length < 3) fail("Дай поне 3 имена, напр.: npm run mystery -- Иван, Ива, Тео");
+  if (!LANGUAGES[opts.lang]) {
+    fail(`Unsupported --lang "${opts.lang}". Use one of: ${Object.keys(LANGUAGES).join(", ")}.`);
+  }
+  if (opts.names.length < 3) fail("Give at least 3 names, e.g.: npm run mystery -- Ivan, Iva, Theo");
   if (opts.victim && !opts.names.some((n) => n.toLowerCase() === opts.victim.toLowerCase())) {
-    fail(`„${opts.victim}“ не е в списъка с имена.`);
+    fail(`“${opts.victim}” isn't in the list of names.`);
   }
   story = await generate(opts);
   if (opts.title) story.title = opts.title;
@@ -254,25 +276,25 @@ if (opts.from) {
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   savedTo = path.join(dir, `${stamp}.json`);
-  writeFileSync(savedTo, JSON.stringify({ names: opts.names, story }, null, 2));
+  writeFileSync(savedTo, JSON.stringify({ names: opts.names, lang: opts.lang, story }, null, 2));
 }
 
 const characters = matchNames(story, opts.names);
-const { code, key, setup } = await upload(story, characters);
+const { code, key, setup } = await upload(story, characters, opts.lang);
 
 const victim = setup.characters.find((c) => c.isVictim)?.name;
 const check = (ok, label) => `${ok ? "✓" : "⚠️"} ${label}`;
 console.log(`
-✓ „${setup.game.title}“ е създадена — код ${code}
+✓ “${setup.game.title}” is created (${LANGUAGES[opts.lang].name}) — code ${code}
 
-Герои (${setup.characters.length}): ${setup.characters.map((c) => c.name).join(", ")}
-${check(setup.victimCount === 1, victim ? `убит: ${victim} (той води играта)` : `убити: ${setup.victimCount}`)}
-${check(setup.culpritCount > 0, `убиец: ${setup.culpritCount > 0 ? "разпознат" : "липсва"}`)}
-${check(setup.hasSolution, "решение")}  ${check(setup.game.intro.trim() !== "", "увод")}
+Characters (${setup.characters.length}): ${setup.characters.map((c) => c.name).join(", ")}
+${check(setup.victimCount === 1, victim ? `victim: ${victim} (runs the game)` : `victims: ${setup.victimCount}`)}
+${check(setup.culpritCount > 0, `killer: ${setup.culpritCount > 0 ? "recognised" : "missing"}`)}
+${check(setup.hasSolution, "solution")}  ${check(setup.game.intro.trim() !== "", "intro")}
 
-Отвори като създател (само ти — линкът е като парола):
+Open as the creator (only you — the link works like a password):
   ${APP_URL}/api/games/${code}/creator-login?key=${encodeURIComponent(key)}
-Линк за играчите:
+Link for the players:
   ${APP_URL}/game/${code}
 
-Копие: ${path.relative(ROOT, savedTo)} (не го отваряй, ако ще играеш)`);
+Copy: ${path.relative(ROOT, savedTo)} (don't open it if you're playing)`);

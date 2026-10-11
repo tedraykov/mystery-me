@@ -3,9 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { normalizeCodeClient } from "@/lib/codeClient";
+import { LOCALES, LOCALE_NAMES, type Locale } from "@/lib/i18n";
+import { useLocale, useT } from "@/lib/i18n/client";
 
 export function JoinForm() {
   const router = useRouter();
+  const t = useT();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +16,7 @@ export function JoinForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (code.length !== 6) {
-      setError("Кодът е точно 6 символа");
+      setError(t("join.codeLength"));
       return;
     }
     setBusy(true);
@@ -25,7 +28,7 @@ export function JoinForm() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Няма игра с този код");
+      setError(data.error ?? t("join.notFound"));
       setBusy(false);
       return;
     }
@@ -35,7 +38,7 @@ export function JoinForm() {
   return (
     <form className="stack" onSubmit={submit}>
       <label className="field">
-        <span>Код на играта</span>
+        <span>{t("join.code")}</span>
         <input
           type="text"
           className="code-input"
@@ -51,7 +54,7 @@ export function JoinForm() {
       </label>
       {error && <div className="alert">{error}</div>}
       <button className="btn btn-primary" disabled={busy || code.length !== 6}>
-        {busy ? "Влизаме…" : "Влез в играта"}
+        {busy ? t("join.joining") : t("join.submit")}
       </button>
     </form>
   );
@@ -59,7 +62,11 @@ export function JoinForm() {
 
 export function CreateForm() {
   const router = useRouter();
+  const t = useT();
+  const locale = useLocale();
   const [title, setTitle] = useState("");
+  // The mystery's own language; it starts as the UI language.
+  const [language, setLanguage] = useState<Locale>(locale);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,11 +77,11 @@ export function CreateForm() {
     const res = await fetch("/api/games", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, language }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data.error ?? "Не успяхме да създадем играта");
+      setError(data.error ?? t("create.failed"));
       setBusy(false);
       return;
     }
@@ -84,23 +91,30 @@ export function CreateForm() {
   return (
     <form className="stack" onSubmit={submit}>
       <label className="field">
-        <span>Име на мистерията</span>
+        <span>{t("create.title")}</span>
         <input
           type="text"
-          placeholder="Убийство на вилата"
+          placeholder={t("create.titlePlaceholder")}
           value={title}
           maxLength={120}
           onChange={(e) => setTitle(e.target.value)}
         />
       </label>
+      <label className="field">
+        <span>{t("create.language")}</span>
+        <select value={language} onChange={(e) => setLanguage(e.target.value as Locale)}>
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>
+              {LOCALE_NAMES[l]}
+            </option>
+          ))}
+        </select>
+      </label>
       {error && <div className="alert">{error}</div>}
       <button className="btn" disabled={busy}>
-        {busy ? "Създаваме…" : "Създай игра"}
+        {busy ? t("create.creating") : t("create.submit")}
       </button>
-      <p className="hint">
-        Качваш героите като .txt файлове, без да виждаш ролите им — така можеш и ти да играеш. Играта
-        я води този, който избере убития. Играчите влизат с 6-символен код.
-      </p>
+      <p className="hint">{t("create.hint")}</p>
     </form>
   );
 }

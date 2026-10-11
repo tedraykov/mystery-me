@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 import { get } from "./db";
+import type { MessageKey, Params } from "./i18n";
+import { getT } from "./i18n/server";
 import type { GameRow, PlayerRow } from "./types";
 
 const YEAR = 60 * 60 * 24 * 365;
@@ -46,14 +48,6 @@ export async function currentPlayer(game: GameRow): Promise<PlayerRow | undefine
   );
 }
 
-/** The player holding the victim's role runs the game. */
-export function isHost(game: GameRow, player: PlayerRow | undefined): boolean {
-  if (!player?.character_id) return false;
-  return Boolean(
-    get("SELECT 1 FROM characters WHERE id = ? AND game_id = ? AND is_victim = 1", player.character_id, game.id),
-  );
-}
-
 /**
  * The creator's page sends `?as=creator`; everything else acts as a player. The same browser can
  * be both, since the creator may also be playing.
@@ -64,50 +58,44 @@ export function asCreator(req: Request): boolean {
 
 export function requireGame(code: string): GameRow {
   const game = findGame(code);
-  if (!game) throw new HttpError(404, "Играта не е намерена");
+  if (!game) throw new HttpError(404, "error.gameNotFound");
   return game;
 }
 
-/** Route-handler guard for the creator's setup page. */
+/** Route-handler guard: only the browser that created the game. */
 export async function requireCreator(code: string): Promise<GameRow> {
   const game = requireGame(code);
-  if (!(await isCreator(game))) throw new HttpError(403, "Само създателят на играта може да прави това");
+  if (!(await isCreator(game))) throw new HttpError(403, "error.creatorOnly");
   return game;
 }
 
-/** Route-handler guard: the caller holds the victim's role. */
-export async function requireHost(code: string): Promise<{ game: GameRow; player: PlayerRow }> {
+/** Route-handler guard for the presenter (TV): the link's secret key must match the game's. */
+export function requirePresenter(code: string, key: string | null): GameRow {
   const game = requireGame(code);
-  const player = await currentPlayer(game);
-  if (!player || !isHost(game, player)) {
-    throw new HttpError(403, "Само водещият (убитият) може да прави това");
-  }
-  return { game, player };
+  if (!key || key !== game.present_token) throw new HttpError(403, "error.presenterKey");
+  return game;
 }
 
-/** Creator (from the setup page) or host — the two who may edit characters and the intro. */
-export async function requireEditor(
-  req: Request,
-  code: string,
-): Promise<{ game: GameRow; actor: "creator" | "host"; player?: PlayerRow }> {
-  if (asCreator(req)) return { game: await requireCreator(code), actor: "creator" };
-  const { game, player } = await requireHost(code);
-  return { game, actor: "host", player };
-}
+/** Route-handler guard: the game master (creator) edits and runs the game. */
+export const requireEditor = (_req: Request, code: string) =>
+  requireCreator(code).then((game) => ({ game }));
 
+/** An error to show the caller; its message is translated into their language when sent. */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
-    message: string,
+    readonly key: MessageKey,
+    readonly params?: Params,
   ) {
-    super(message);
+    super(key);
   }
 }
 
-export function errorResponse(e: unknown): Response {
+export async function errorResponse(e: unknown): Promise<Response> {
+  const t = await getT();
   if (e instanceof HttpError) {
-    return Response.json({ error: e.message }, { status: e.status });
+    return Response.json({ error: t(e.key, e.params) }, { status: e.status });
   }
   console.error(e);
-  return Response.json({ error: "Вътрешна грешка" }, { status: 500 });
+  return Response.json({ error: t("error.internal") }, { status: 500 });
 }

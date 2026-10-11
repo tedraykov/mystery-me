@@ -10,7 +10,7 @@ import { dataDir } from "./db";
  */
 
 const API = "https://api.elevenlabs.io/v1/text-to-speech";
-// A premade voice every account has; multilingual models read Bulgarian with any voice.
+// A premade voice every account has; multilingual models read every supported language with it.
 const DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb";
 const DEFAULT_MODEL = "eleven_multilingual_v2";
 
@@ -29,7 +29,7 @@ function audioKey(text: string): string {
  */
 export function audioUrl(route: string, text: string): string | null {
   if (!ttsEnabled() || !text.trim()) return null;
-  return `${route}?v=${audioKey(text).slice(0, 16)}`;
+  return `${route}${route.includes("?") ? "&" : "?"}v=${audioKey(text).slice(0, 16)}`;
 }
 
 const inflight = new Map<string, Promise<Buffer>>();
@@ -70,7 +70,7 @@ export function warm(text: string): void {
 
 async function synthesize(text: string): Promise<Buffer> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) throw new HttpError(503, "Четенето на глас не е настроено");
+  if (!apiKey) throw new HttpError(503, "error.ttsOff");
 
   const res = await fetch(
     `${API}/${encodeURIComponent(voice())}?output_format=mp3_44100_128`,
@@ -87,7 +87,7 @@ async function synthesize(text: string): Promise<Buffer> {
   );
   if (!res.ok) {
     console.error("ElevenLabs error", res.status, await res.text().catch(() => ""));
-    throw new HttpError(502, "Гласът не можа да се генерира");
+    throw new HttpError(502, "error.ttsFailed");
   }
   return Buffer.from(await res.arrayBuffer());
 }

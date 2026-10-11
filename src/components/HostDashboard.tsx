@@ -9,14 +9,17 @@ import {
 } from "@/components/CharacterEditor";
 import { CharacterCard } from "@/components/CharacterCard";
 import { ClueTimerPanel } from "@/components/ClueTimer";
-import { JoinLine, PhaseStepper, type Send } from "@/components/GameChrome";
+import { JoinLine, PhaseStepper, type Send, StoryNotice } from "@/components/GameChrome";
 import { ImportTxt } from "@/components/ImportTxt";
 import { IntroEditor } from "@/components/IntroEditor";
-import { initial, paragraphs } from "@/lib/format";
+import { RoundsEditor } from "@/components/RoundsEditor";
+import { initial, markerWords, splitRounds, withInitial } from "@/lib/format";
+import type { T } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
 import { mutate } from "@/lib/useGameState";
 import type { GameView, HostView } from "@/lib/types";
 
-type Tab = "victim" | "cast" | "intro" | "solution" | "votes";
+type Tab = "victim" | "cast" | "intro" | "rounds" | "solution" | "votes";
 
 /**
  * The player who picked the victim runs the game from here: phases, the clue timer, and every
@@ -31,7 +34,8 @@ export function HostDashboard({
   view: HostView;
   apply: (view: GameView) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("victim");
+  const t = useT();
+  const [tab, setTab] = useState<Tab>("cast");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -50,7 +54,7 @@ export function HostDashboard({
       <header className="stack" style={{ marginTop: 8 }}>
         <div className="stack-sm">
           <h1>{v.game.title}</h1>
-          <JoinLine code={code} playerCount={v.playerCount} badge="☠️ Водещ" />
+          <JoinLine code={code} playerCount={v.playerCount} badge={t("host.badge")} />
         </div>
         <PhaseStepper
           phase={v.game.phase}
@@ -62,11 +66,12 @@ export function HostDashboard({
       <div className="tabs" role="tablist">
         {(
           [
-            ["victim", "☠️ Моята роля"],
-            ["cast", `Герои (${v.characters.length})`],
-            ["intro", "Увод"],
-            ["solution", "Решение"],
-            ["votes", `Гласове (${v.voterCount})`],
+            ["victim", t("host.tabVictim")],
+            ["cast", t("host.tabCast", { count: v.characters.length })],
+            ["intro", t("host.tabIntro")],
+            ["rounds", t("host.tabRounds", { count: v.game.round.total })],
+            ["solution", t("host.tabSolution")],
+            ["votes", t("host.tabVotes", { count: v.voterCount })],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -83,22 +88,140 @@ export function HostDashboard({
 
       {actionError && <div className="alert">{actionError}</div>}
 
-      {v.timer && <ClueTimerPanel timer={v.timer} busy={busy} send={send} code={code} />}
+      <StoryNotice story={v.story} />
+
+      {v.timer && (
+        <ClueTimerPanel
+          timer={v.timer}
+          busy={busy}
+          send={send}
+          code={code}
+          language={v.story.source}
+        />
+      )}
+
+      {v.game.phase !== "setup" && (v.game.round.total > 0 || v.game.narration.segments.length > 0) && (
+        <RoundsPanel view={v} busy={busy} send={send} code={code} />
+      )}
 
       {tab === "victim" && <VictimTab view={v} />}
       {tab === "cast" && <CastTab view={v} busy={busy} send={send} code={code} />}
       {tab === "intro" && (
         <IntroEditor
-          intro={v.game.intro}
+          intro={splitRounds(v.game.original.intro).initial}
           introAudio={v.introAudio}
           tts={v.tts}
           busy={busy}
-          onSave={(intro) => send(`/api/games/${code}`, "PATCH", { intro })}
+          // Only the opening is edited here; the rounds' public messages are under "Rounds".
+          onSave={(text) =>
+            send(`/api/games/${code}`, "PATCH", {
+              intro: withInitial(v.game.original.intro, text, markerWords(v.story.source).round),
+            })
+          }
+          note={editingOriginal(v, t)}
         />
       )}
+      {tab === "rounds" && <RoundsEditor view={v} busy={busy} send={send} code={code} />}
       {tab === "solution" && <SolutionTab view={v} busy={busy} send={send} code={code} />}
       {tab === "votes" && <VotesTab view={v} busy={busy} send={send} code={code} />}
     </main>
+  );
+}
+
+/** When the host reads a translation, a reminder that editors change the original. */
+function editingOriginal(view: HostView, t: T): string | undefined {
+  if (view.story.shown === view.story.source) return undefined;
+  return t("translation.editingOriginal", { language: t(`lang.${view.story.source}`) });
+}
+
+/* ── Rounds ────────────────────────────────────────────────────── */
+function RoundsPanel({
+  view,
+  busy,
+  send,
+  code,
+}: {
+  view: HostView;
+  busy: boolean;
+  send: Send;
+  code: string;
+}) {
+  const t = useT();
+  const { round, narration } = view.game;
+  const set = (n: number) => send(`/api/games/${code}`, "PATCH", { round: n });
+  const narrate = (segment: number | null) =>
+    send(`/api/games/${code}`, "PATCH", { narrate: segment });
+  const released = narration.segments.filter((s) => s.number <= round.current);
+  const presenterPath = `/present/${code}?k=${view.game.presenterToken}`;
+  const [copied, setCopied] = useState(false);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(new URL(presenterPath, window.location.href).href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable — the open link still works
+    }
+  }
+
+  return (
+    <div className="panel stack-sm">
+      {round.total > 0 && (
+        <>
+          <div className="eyebrow">{t("rounds.eyebrow")}</div>
+          <p>
+            {round.current === 0
+              ? t("rounds.notStarted")
+              : t("rounds.status", { current: round.current, total: round.total })}
+            {round.current >= round.total && ` ${t("rounds.allOut")}`}
+          </p>
+          <div className="row">
+            {round.current < round.total && (
+              <button className="btn btn-primary" disabled={busy} onClick={() => set(round.current + 1)}>
+                {t("rounds.release", { number: round.current + 1 })}
+              </button>
+            )}
+            {round.current > 0 && (
+              <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => set(round.current - 1)}>
+                {t("rounds.takeBack", { number: round.current })}
+              </button>
+            )}
+          </div>
+          <hr className="divider" />
+        </>
+      )}
+
+      <div className="eyebrow">{t("rounds.narrationEyebrow")}</div>
+      <div className="row">
+        {released.map((s) => (
+          <button
+            key={s.number}
+            className={narration.active?.segment === s.number ? "btn" : "btn btn-primary"}
+            disabled={busy}
+            onClick={() => narrate(s.number)}
+          >
+            {narration.active?.segment === s.number && "↻ "}
+            {s.number === 0 ? t("rounds.narrateOpening") : t("rounds.narrateRound", { number: s.number })}
+          </button>
+        ))}
+        {narration.active && (
+          <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => narrate(null)}>
+            {t("rounds.narrationStop")}
+          </button>
+        )}
+      </div>
+      <div className="row row-tight">
+        <a className="btn btn-sm" href={presenterPath} target="_blank" rel="noreferrer">
+          {t("rounds.presenterOpen")}
+        </a>
+        <button className="btn btn-sm btn-ghost" onClick={copyLink}>
+          {copied ? t("chrome.copied") : t("rounds.presenterCopy")}
+        </button>
+      </div>
+      <p className="hint">{t("rounds.presenterHint")}</p>
+      {!view.tts && <p className="hint hint-warn">{t("rounds.ttsOff")}</p>}
+    </div>
   );
 }
 
@@ -114,6 +237,8 @@ function CastTab({
   send: Send;
   code: string;
 }) {
+  const t = useT();
+  const markers = markerWords(view.story.source);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<CharacterDraft>(emptyDraft());
   const [adding, setAdding] = useState(false);
@@ -145,7 +270,7 @@ function CastTab({
   }
 
   async function remove(id: string, name: string) {
-    if (!confirm(`Да изтрием ли „${name}“? Това не може да се върне.`)) return;
+    if (!confirm(t("common.confirmDelete", { name }))) return;
     if (await send(`/api/games/${code}/characters/${id}`, "DELETE")) setEditing(null);
   }
 
@@ -165,23 +290,18 @@ function CastTab({
   return (
     <div className="stack">
       {view.characters.filter((c) => c.is_victim === 1).length > 1 && (
-        <div className="alert">
-          Повече от един герой започва с „УБИТ“. Убитият трябва да е само един — остави думата само в
-          неговото описание.
-        </div>
+        <div className="alert">{t("host.manyVictims", markers)}</div>
       )}
 
       {view.characters.length === 0 && !adding && (
-        <div className="notice">
-          Още няма герои. Качи ги като .txt файлове — името на файла става име на героя, а текстът
-          описание.
-        </div>
+        <div className="notice">{t("host.noCharacters")}</div>
       )}
 
       {view.characters.map((c, i) =>
         editing === c.id ? (
           <div key={c.id} className="panel stack">
-            <div className="eyebrow">Редакция</div>
+            <div className="eyebrow">{t("host.editing")}</div>
+            {editingOriginal(view, t) && <p className="hint">{editingOriginal(view, t)}</p>}
             <CharacterEditor
               draft={draft}
               setDraft={setDraft}
@@ -189,7 +309,8 @@ function CastTab({
               onCancel={() => setEditing(null)}
               onDelete={() => remove(c.id, c.name)}
               busy={busy}
-              saveLabel="Запази промените"
+              saveLabel={t("host.saveChanges")}
+              language={view.story.source}
             />
           </div>
         ) : (
@@ -199,20 +320,20 @@ function CastTab({
               <span className="nm">{c.name}</span>
               <span className="row row-tight" style={{ marginTop: 2 }}>
                 {c.is_victim === 1 ? (
-                  <span className="badge badge-violet">☠️ Убитият — ти</span>
+                  <span className="badge badge-violet">{t("host.victimYou")}</span>
                 ) : c.claimed ? (
-                  <span className="badge badge-teal">Заета от играч</span>
+                  <span className="badge badge-teal">{t("common.claimedByPlayer")}</span>
                 ) : (
-                  <span className="badge">Свободна</span>
+                  <span className="badge">{t("common.free")}</span>
                 )}
-                {c.is_culprit === 1 && <span className="badge badge-blood">🔪 Виновен</span>}
-                {!c.description.trim() && <span className="badge">Без описание</span>}
+                {c.is_culprit === 1 && <span className="badge badge-blood">{t("host.guilty")}</span>}
+                {!c.description.trim() && <span className="badge">{t("host.noDescription")}</span>}
               </span>
             </span>
             <span className="row row-tight">
               <button
                 className="btn btn-sm btn-ghost"
-                title="Нагоре"
+                title={t("host.up")}
                 disabled={busy || i === 0}
                 onClick={() => move(i, -1)}
               >
@@ -220,14 +341,14 @@ function CastTab({
               </button>
               <button
                 className="btn btn-sm btn-ghost"
-                title="Надолу"
+                title={t("host.down")}
                 disabled={busy || i === view.characters.length - 1}
                 onClick={() => move(i, 1)}
               >
                 ↓
               </button>
               <button className="btn btn-sm" onClick={() => startEdit(c.id)} disabled={busy}>
-                Редактирай
+                {t("host.edit")}
               </button>
             </span>
           </div>
@@ -236,23 +357,24 @@ function CastTab({
 
       {adding ? (
         <div className="panel stack">
-          <div className="eyebrow">Нов герой</div>
+          <div className="eyebrow">{t("host.newCharacter")}</div>
           <CharacterEditor
             draft={draft}
             setDraft={setDraft}
             onSave={saveNew}
             onCancel={() => setAdding(false)}
             busy={busy}
-            saveLabel="Добави героя"
+            saveLabel={t("host.addCharacter")}
+            language={view.story.source}
           />
         </div>
       ) : (
         <div className="sticky-bar row" style={{ alignItems: "flex-end" }}>
           <button className="btn btn-primary" onClick={startAdd} disabled={busy}>
-            + Добави герой
+            {t("host.addCharacterButton")}
           </button>
           <ImportTxt
-            characters={view.characters}
+            characters={view.characters.map((c) => ({ id: c.id, name: c.original.name }))}
             busy={busy}
             save={(id, name, description) =>
               id
@@ -269,14 +391,10 @@ function CastTab({
 
 /* ── The victim — the host's own role ──────────────────────────── */
 function VictimTab({ view }: { view: HostView }) {
+  const t = useT();
   const victim = view.characters.find((c) => c.is_victim === 1);
   if (!victim) {
-    return (
-      <div className="notice">
-        Никой герой не започва с „УБИТ“. Добави го в началото на описанието на убития в „Герои“ —
-        уликите му са абзаците, започващи с „Улика“.
-      </div>
-    );
+    return <div className="notice">{t("host.noVictim", markerWords(view.story.source))}</div>;
   }
   return (
     <CharacterCard
@@ -298,7 +416,8 @@ function SolutionTab({
   send: Send;
   code: string;
 }) {
-  const [text, setText] = useState(view.game.solution);
+  const t = useT();
+  const [text, setText] = useState(view.game.original.solution);
   const [saved, setSaved] = useState(false);
   const culprits = view.characters.filter((c) => c.is_culprit === 1);
 
@@ -312,8 +431,8 @@ function SolutionTab({
   return (
     <div className="stack">
       <div className="panel stack">
-        <div className="eyebrow">Само за теб — до фаза „Разкритие“</div>
-        <h2>🕯️ Как е станало наистина</h2>
+        <div className="eyebrow">{t("host.solutionEyebrow")}</div>
+        <h2>{t("host.solutionHeading")}</h2>
         {culprits.length > 0 ? (
           <div className="row row-tight">
             {culprits.map((c) => (
@@ -323,22 +442,21 @@ function SolutionTab({
             ))}
           </div>
         ) : (
-          <div className="notice">
-            Няма разпознат убиец. Започни описанието на убиеца в „Герои“ с „УБИЕЦ“.
-          </div>
+          <div className="notice">{t("host.noKiller", markerWords(view.story.source))}</div>
         )}
+        {editingOriginal(view, t) && <p className="hint">{editingOriginal(view, t)}</p>}
         <label className="field">
-          <span>Разказът на финала</span>
+          <span>{t("host.solutionLabel")}</span>
           <textarea
             value={text}
             style={{ minHeight: 220 }}
-            placeholder="Вальо слязъл в избата в 22:18…"
+            placeholder={t("host.solutionPlaceholder")}
             onChange={(e) => setText(e.target.value)}
           />
         </label>
         <div className="row">
           <button className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? "Запазваме…" : saved ? "✓ Запазено" : "Запази решението"}
+            {busy ? t("common.saving") : saved ? t("common.saved") : t("host.saveSolution")}
           </button>
           <span className="spacer" />
           {view.game.phase !== "revealed" && (
@@ -347,14 +465,12 @@ function SolutionTab({
               disabled={busy}
               onClick={() => send(`/api/games/${code}`, "PATCH", { phase: "revealed" })}
             >
-              🎭 Разкрий на всички
+              {t("host.revealAll")}
             </button>
           )}
         </div>
         {view.game.phase === "revealed" && (
-          <div className="notice">
-            Играта е в „Разкритие“ — всички играчи виждат решението и гласовете.
-          </div>
+          <div className="notice">{t("host.revealed")}</div>
         )}
       </div>
     </div>
@@ -373,33 +489,32 @@ function VotesTab({
   send: Send;
   code: string;
 }) {
-  const max = Math.max(1, ...view.votes.map((t) => t.votes));
+  const t = useT();
+  const max = Math.max(1, ...view.votes.map((v) => v.votes));
 
   return (
     <div className="stack">
       {view.game.phase !== "voting" && view.game.phase !== "revealed" && (
-        <div className="notice">
-          Гласуването е затворено. Превключи на фаза „Гласуване“, за да могат играчите да обвиняват.
-        </div>
+        <div className="notice">{t("host.votingClosed")}</div>
       )}
 
       {view.votes.length === 0 ? (
-        <div className="notice">Още никой не е гласувал.</div>
+        <div className="notice">{t("host.noVotes")}</div>
       ) : (
         <div className="panel stack">
           <div className="eyebrow">
-            {view.voterCount} от {view.playerCount} гласуваха
+            {t("host.votedOf", { voters: view.voterCount, players: view.playerCount })}
           </div>
-          {view.votes.map((t) => (
-            <div key={t.characterId} className="stack-sm">
+          {view.votes.map((v) => (
+            <div key={v.characterId} className="stack-sm">
               <div className="bar-row">
-                <span>{t.characterName}</span>
+                <span>{v.characterName}</span>
                 <span className="bar-track">
-                  <span className="bar-fill" style={{ width: `${(t.votes / max) * 100}%` }} />
+                  <span className="bar-fill" style={{ width: `${(v.votes / max) * 100}%` }} />
                 </span>
-                <span className="muted">{t.votes}</span>
+                <span className="muted">{v.votes}</span>
               </div>
-              {t.reasons.map((r, i) => (
+              {v.reasons.map((r, i) => (
                 <p key={i} className="faint" style={{ paddingLeft: 4, fontStyle: "italic" }}>
                   „{r}“
                 </p>
@@ -411,11 +526,11 @@ function VotesTab({
             className="btn btn-sm btn-danger"
             disabled={busy}
             onClick={() => {
-              if (confirm("Да изчистим ли всички гласове?"))
+              if (confirm(t("host.clearVotesConfirm")))
                 send(`/api/games/${code}/vote`, "DELETE");
             }}
           >
-            Изчисти гласовете
+            {t("host.clearVotes")}
           </button>
         </div>
       )}

@@ -2,12 +2,13 @@ import { errorResponse, requireEditor } from "@/lib/auth";
 import { json, requiredStr, str } from "@/lib/body";
 import { applyRoleMarker, get, run, touchGame } from "@/lib/db";
 import { id } from "@/lib/ids";
+import { getLocale } from "@/lib/i18n/server";
 import { editorView } from "@/lib/state";
 
 export async function POST(req: Request, ctx: { params: Promise<{ code: string }> }) {
   try {
     const { code } = await ctx.params;
-    const { game, actor } = await requireEditor(req, code);
+    const { game } = await requireEditor(req, code);
     const body = await json(req);
 
     const next =
@@ -30,7 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     applyRoleMarker(characterId, description);
 
     touchGame(game.id);
-    return Response.json(editorView(game, actor));
+    return Response.json(editorView(game, await getLocale()));
   } catch (e) {
     return errorResponse(e);
   }

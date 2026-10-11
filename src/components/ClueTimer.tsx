@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ReadAloud } from "@/components/ReadAloud";
-import { paragraphs } from "@/lib/format";
+import { markerWords, paragraphs } from "@/lib/format";
+import type { Locale } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
 import type { ClueTimer } from "@/lib/types";
 
 type Send = (path: string, method: "POST" | "PATCH" | "DELETE", body?: unknown) => Promise<boolean>;
@@ -54,12 +56,16 @@ export function ClueTimerPanel({
   busy,
   send,
   code,
+  language,
 }: {
   timer: ClueTimer;
   busy: boolean;
   send: Send;
   code: string;
+  /** The language the mystery is written in, for the name of its clue marker. */
+  language: Locale;
 }) {
+  const t = useT();
   // Count against the server's clock: the phone's clock may be off by minutes.
   const offset = useMemo(() => timer.serverNow - Date.now(), [timer.serverNow]);
   const [now, setNow] = useState(() => Date.now());
@@ -113,29 +119,29 @@ export function ClueTimerPanel({
   useEffect(() => {
     if (!due) return;
     const title = document.title;
-    document.title = "⏰ Време е за улика!";
+    document.title = t("timer.title");
     return () => {
       document.title = title;
     };
-  }, [due]);
+  }, [due, t]);
 
   async function markRead() {
     if (await send(`/api/games/${code}`, "PATCH", { clueRead: true })) setStoppedRound(null);
   }
 
   async function restart() {
-    if (!confirm("Да започнем ли уликите отначало? Таймерът тръгва от 25 минути.")) return;
+    if (!confirm(t("timer.restartConfirm"))) return;
     await send(`/api/games/${code}`, "PATCH", { resetClues: true });
   }
 
   if (allRead) {
     return (
       <div className="panel timer-panel stack-sm">
-        <div className="eyebrow">Само за теб · таймер за улики</div>
-        <p className="muted">✓ Всички {timer.total} улики са прочетени.</p>
+        <div className="eyebrow">{t("timer.onlyYou")}</div>
+        <p className="muted">{t("timer.allRead", { count: timer.total })}</p>
         <div className="row">
           <button className="btn btn-sm btn-ghost" onClick={restart} disabled={busy}>
-            Започни уликите отначало
+            {t("timer.restart")}
           </button>
         </div>
       </div>
@@ -148,22 +154,23 @@ export function ClueTimerPanel({
     <div className={`panel timer-panel stack-sm ${due ? "timer-due" : ""}`}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="eyebrow">
-          Само за теб · Улика {number}
-          {timer.total > 0 && ` от ${timer.total}`}
+          {timer.total > 0
+            ? t("timer.clueOf", { number, total: timer.total })
+            : t("timer.clue", { number })}
         </div>
         {!showClue && (
           <button className="btn btn-sm" onClick={() => setStoppedRound(timer.roundStartedAt)}>
-            Прочети по-рано
+            {t("timer.readEarly")}
           </button>
         )}
       </div>
 
       {due ? (
         <div className="timer-clock">
-          ⏰ Време е! <span className="timer-over">+{mmss(-remaining)}</span>
+          {t("timer.due")} <span className="timer-over">+{mmss(-remaining)}</span>
         </div>
       ) : stopped ? (
-        <div className="timer-clock timer-paused">⏸ Спрян</div>
+        <div className="timer-clock timer-paused">{t("timer.paused")}</div>
       ) : (
         <>
           <div className="timer-clock">{mmss(remaining)}</div>
@@ -182,19 +189,16 @@ export function ClueTimerPanel({
               ))}
             </div>
           ) : (
-            <p className="hint hint-warn">
-              В описанието на убития няма абзаци, започващи с „Улика“, затова тук не се показва
-              текст. Прочети следващата си улика от „Моята роля“.
-            </p>
+            <p className="hint hint-warn">{t("timer.noClueText", markerWords(language))}</p>
           )}
           <div className="row">
             <button className="btn btn-primary" onClick={markRead} disabled={busy}>
-              ✓ Прочетох я
+              {t("timer.markRead")}
             </button>
             {timer.next && <ReadAloud src={timer.next.audio} />}
             {stopped && (
               <button className="btn btn-sm btn-ghost" onClick={() => setStoppedRound(null)}>
-                Не още
+                {t("timer.notYet")}
               </button>
             )}
           </div>
