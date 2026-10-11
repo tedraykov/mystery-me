@@ -807,13 +807,21 @@ textarea {
   font-size: clamp(1.8rem, 4vw, 4.5rem);
   color: var(--amber);
 }
-.presenter-join {
+.presenter-lobby {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6vw;
   margin-top: 4vh;
+  max-width: 90vw;
+}
+.presenter-join {
   display: flex;
   flex-direction: column;
-  gap: 1vh;
+  align-items: center;
+  gap: 1.2vh;
   font-family: var(--sans);
-  font-size: clamp(1.2rem, 2.4vw, 2.8rem);
+  font-size: clamp(1rem, 1.8vw, 2.2rem);
   color: var(--muted);
 }
 .presenter-join strong {
@@ -822,8 +830,49 @@ textarea {
   letter-spacing: 0.18em;
   color: var(--parchment);
 }
-.presenter-join small {
-  font-size: 0.7em;
+.presenter-qr {
+  width: clamp(150px, 22vh, 340px);
+  height: auto;
+  border-radius: 12px;
+}
+.presenter-cast {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5vh;
+  align-items: flex-start;
+  font-family: var(--sans);
+  text-align: left;
+}
+.presenter-cast small {
+  font-size: clamp(0.9rem, 1.4vw, 1.7rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.presenter-cast ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1vh 1vw;
+  max-width: 48vw;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.presenter-cast li {
+  padding: 0.35em 0.9em;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: clamp(1rem, 1.9vw, 2.3rem);
+  color: var(--faint);
+}
+.presenter-cast li.is-claimed {
+  border-color: var(--teal);
+  background: rgba(95, 168, 160, 0.16);
+  color: var(--parchment);
+}
+.presenter-cast li.is-victim {
+  border-color: var(--violet);
+  color: var(--violet);
 }
 .presenter-subtitle {
   margin: 0;

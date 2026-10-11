@@ -1,0 +1,42 @@
+{
+  "title": "Murder at the villa",
+  "language": "en",
+  "intro": "Saturday night at the mountain villa. Ivan has gathered his oldest friends for the weekend, and the storm has cut the road behind them.",
+  "characters": [
+    {
+      "name": "Ivan",
+      "role": "victim",
+      "backstory": "You are Ivan, the host, and tonight you will be found dead in the study. You play the victim: the game master reads out your clues.",
+      "clues": [
+        "A key lies under the flowerpot on the terrace.",
+        "The cellar smells of petrol."
+      ]
+    },
+    {
+      "name": "Ana",
+      "role": "killer",
+      "backstory": "You are Ana, Ivan's business partner. You have been skimming money from the company for two years, and Ivan found out this week. Your goal: make sure nobody opens the cellar."
+    },
+    {
+      "name": "Bob",
+      "backstory": "You are Bob, Ivan's brother. You owe Ivan a lot of money and you argued about it at dinner. You know Ana left the table at 22:10."
+    }
+  ],
+  "rounds": [
+    {
+      "title": "The lights go out",
+      "message": "At 22:15 every light in the villa goes out. When they come back, the study door is open and Ivan is on the floor.",
+      "characters": {
+        "Ana": "You slipped out in the dark. Make sure nobody finds out where you were.",
+        "Bob": "In the dark someone brushed past you smelling of petrol. You could not see who."
+      }
+    },
+    {
+      "message": "The storm knocks out the phones. Nobody can leave, and somebody finds a key under the flowerpot.",
+      "characters": {
+        "Bob": "You saw Ana come back from the direction of the cellar. Decide whether to tell."
+      }
+    }
+  ],
+  "reveal": "Ana killed Ivan to hide the missing money, then tried to burn the ledgers in the cellar. The petrol smell and the key under the flowerpot lead to her."
+}

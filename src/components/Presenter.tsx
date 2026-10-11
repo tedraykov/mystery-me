@@ -1,5 +1,6 @@
 "use client";
 
+import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { subtitleChunks } from "@/lib/format";
 import { isLocale } from "@/lib/i18n";
@@ -103,6 +104,18 @@ export function Presenter({
     [],
   );
 
+  // The QR code leads to the join page of this very server, wherever the TV opened it from.
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => {
+    QRCode.toDataURL(`${window.location.origin}/game/${code}`, {
+      margin: 1,
+      width: 480,
+      color: { dark: "#0c0d11", light: "#ece7dc" },
+    })
+      .then(setQr)
+      .catch(() => setQr(null));
+  }, [code]);
+
   if (error) {
     return (
       <div className="presenter presenter-center">
@@ -178,12 +191,37 @@ export function Presenter({
               {t("presenter.round", { number: view.game.round.current })}
             </div>
           )}
-          {(view.game.phase === "setup" || view.game.phase === "lobby") && (
-            <div className="presenter-join">
-              {t("presenter.join")} <strong>{view.game.code}</strong>
-              <small>{t("presenter.players", { count: view.game.playerCount })}</small>
+          <div className="presenter-lobby">
+            {view.game.phase !== "revealed" && (
+              <div className="presenter-join">
+                {qr && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img className="presenter-qr" src={qr} alt={t("presenter.scan")} />
+                )}
+                <span>{t("presenter.join")}</span>
+                <strong>{view.game.code}</strong>
+              </div>
+            )}
+            <div className="presenter-cast">
+              <small>
+                {t("presenter.joined", {
+                  count: view.game.cast.filter((c) => c.claimed).length,
+                  total: view.game.cast.filter((c) => !c.isVictim).length,
+                })}
+              </small>
+              <ul>
+                {view.game.cast.map((c) => (
+                  <li
+                    key={c.id}
+                    className={c.claimed ? "is-claimed" : c.isVictim ? "is-victim" : undefined}
+                  >
+                    {c.isVictim ? "☠️ " : c.claimed ? "✓ " : ""}
+                    {c.name}
+                  </li>
+                ))}
+              </ul>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

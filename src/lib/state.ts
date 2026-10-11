@@ -215,7 +215,11 @@ const narrationRoute = (code: string, n: number, locale: Locale, key: string) =>
 
 /** The TV's view: the game's public face and the narration the host last started. */
 export function buildPresenterView(game: GameRow, locale: Locale): PresenterView {
-  const cast = characters(game.id);
+  const original = characters(game.id);
+  const cast = original;
+  const claimed = claimedIds(game.id);
+  // Names are shown in the TV's language once the translation is ready.
+  const shown = localize(game, original, locale, { start: false }).characters;
   const segment = game.narration_segment;
   // Only released parts are sent, so the TV can't show what the host hasn't opened yet.
   const text =
@@ -235,6 +239,12 @@ export function buildPresenterView(game: GameRow, locale: Locale): PresenterView
           n: 0,
         }
       ).n,
+      cast: shown.map((c) => ({
+        id: c.id,
+        name: c.name,
+        claimed: claimed.has(c.id),
+        isVictim: c.is_victim === 1,
+      })),
     },
     cue:
       segment !== null && text

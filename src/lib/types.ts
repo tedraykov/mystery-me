@@ -163,6 +163,8 @@ export interface PresenterView {
     phase: Phase;
     round: { current: number; total: number };
     playerCount: number;
+    /** Everyone in the cast; `claimed` once a player has picked that character. */
+    cast: CharacterPublic[];
   };
   /** The part of the story being narrated now; it changes `seq` every time the host starts one. */
   cue: {

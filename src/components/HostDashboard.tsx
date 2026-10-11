@@ -10,6 +10,7 @@ import {
 import { CharacterCard } from "@/components/CharacterCard";
 import { ClueTimerPanel } from "@/components/ClueTimer";
 import { JoinLine, PhaseStepper, type Send, StoryNotice } from "@/components/GameChrome";
+import { ImportGame } from "@/components/ImportGame";
 import { ImportTxt } from "@/components/ImportTxt";
 import { IntroEditor } from "@/components/IntroEditor";
 import { RoundsEditor } from "@/components/RoundsEditor";
@@ -289,6 +290,14 @@ function CastTab({
 
   return (
     <div className="stack">
+      <ImportGame
+        code={code}
+        hasContent={view.characters.length > 0 || view.game.original.intro.trim() !== ""}
+        canImport={view.game.phase === "setup" || view.game.phase === "lobby"}
+        busy={busy}
+        send={send}
+      />
+
       {view.characters.filter((c) => c.is_victim === 1).length > 1 && (
         <div className="alert">{t("host.manyVictims", markers)}</div>
       )}

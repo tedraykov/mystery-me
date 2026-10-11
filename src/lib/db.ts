@@ -229,3 +229,15 @@ export function applyRoleMarker(characterId: string, description: string): void 
 export function touchGame(gameId: string): void {
   run("UPDATE games SET updated_at = ? WHERE id = ?", Date.now(), gameId);
 }
+
+/** Run `fn` as one all-or-nothing change. */
+export function transaction(fn: () => void): void {
+  db().exec("BEGIN");
+  try {
+    fn();
+    db().exec("COMMIT");
+  } catch (e) {
+    db().exec("ROLLBACK");
+    throw e;
+  }
+}

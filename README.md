@@ -62,6 +62,41 @@ round just has nothing new. Players only ever receive the rounds the host has re
 game is on, the host's dashboard has "Release round N" (and "Take back round N"). Rounds are written in the "Rounds" tab (the text format above is what it stores and what `.txt`
 import reads). Stored in `games.current_round`.
 
+### Importing a whole game
+
+A mystery written elsewhere (by hand, or by an LLM) can be imported in one go: in the game master's
+**Characters** tab, "Import a whole game (.json)". It replaces the characters, the intro, the rounds
+and the solution, and is only allowed before the game is played. "Download as .json" exports the
+current game in the same format, so you can edit it elsewhere and import it back. A ready example is
+[`public/game-format.example.json`](public/game-format.example.json).
+
+```jsonc
+{
+  "title": "Murder at the villa",
+  "language": "en",              // optional — "en" or "bg", the language the text is written in
+  "intro": "…",                  // the opening everyone hears (увод)
+  "characters": [
+    { "name": "Ana", "role": "killer", "backstory": "…" },        // role is optional: "killer" | "victim"
+    { "name": "Ivan", "role": "victim", "backstory": "…",
+      "clues": ["…", "…"] },                                       // victim only: read out on the timer
+    { "name": "Bob", "backstory": "…" }
+  ],
+  "rounds": [                    // as many as you like, in order: round 1, 2, …
+    {
+      "title": "The lights go out",   // optional
+      "message": "…",                  // shared with everyone, announced on the TV
+      "characters": { "Ana": "…", "Bob": "…" }   // what each named character learns (others: nothing)
+    }
+  ],
+  "reveal": "…"                  // the great reveal, shown at the end
+}
+```
+
+Names are matched case-insensitively. The role word (`KILLER` / `VICTIM`, `УБИЕЦ` / `УБИТ`) and the
+`Clue N:` / `Round N` labels are added for you in the file's language. The whole file is checked
+first and every problem is listed together (a wrong role, a round naming an unknown character, a
+duplicate name, a text over the length limits); nothing is changed unless it is all valid.
+
 ### Presenter (TV)
 
 `/present/CODE?k=KEY` is a full-screen view for a TV: the title, the join code while players arrive,
@@ -281,6 +316,8 @@ the creator always gets the original.
 | `GET` | `/api/games/:code/state` | creator, host or player → role-aware view (polled) |
 | `POST` | `/api/games/:code/claim` | player → claim / release a character (claiming the victim makes you host) |
 | `POST` | `/api/games/:code/vote` | player → accuse (only during `voting`) |
+| `POST` | `/api/games/:code/import` | game master → `{ game }` replaces the whole mystery from the whole-game JSON (before `playing`) |
+| `GET` | `/api/games/:code/export` | game master → the mystery as a whole-game JSON download |
 | `DELETE` | `/api/games/:code/vote` | game master → clear the tally |
 | `PATCH` | `/api/games/:code` | game master → title, intro, solution, `language`, `phase`, `round`, `narrate`, `clueRead`, `resetClues` |
 | `GET` | `/api/games/:code/creator-login?key=…` | holder of the creator key → creator cookie, redirect to `/gm/CODE` |
