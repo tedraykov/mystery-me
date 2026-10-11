@@ -173,6 +173,7 @@ export function buildHostView(game: GameRow, locale: Locale): HostView {
         total: roundCount([...original.map((c) => c.description), game.intro]),
       },
       presenterToken: game.present_token,
+      creatorKey: game.gm_token,
       narration: {
         segments: segments(game.intro),
         active:

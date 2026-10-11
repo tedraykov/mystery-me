@@ -165,6 +165,8 @@ export const en = {
   "rounds.narrationStop": "■ Stop",
   "rounds.presenterOpen": "📺 Open the presenter",
   "rounds.presenterCopy": "Copy the TV link",
+  "host.creatorCopy": "Copy creator link",
+  "host.creatorHint": "Open this link on another device to run the game from there. Keep it private: anyone with it can edit the game.",
   "rounds.presenterHint":
     "Open the link on the TV (or cast that tab). Click once on the screen to allow sound — after that you decide when each part is read out.",
 

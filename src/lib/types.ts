@@ -134,6 +134,8 @@ export interface HostView {
     round: { current: number; total: number };
     /** Secret key of the presenter (TV) link. */
     presenterToken: string;
+    /** Secret key of the creator link, for opening the game master page on another device. */
+    creatorKey: string;
     /** The parts of the story that can be narrated on the presenter, and which one last started. */
     narration: {
       segments: { number: number; title: string }[];

@@ -39,6 +39,18 @@ export function HostDashboard({
   const [tab, setTab] = useState<Tab>("cast");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [creatorCopied, setCreatorCopied] = useState(false);
+
+  async function copyCreatorLink() {
+    const path = `/api/games/${code}/creator-login?key=${encodeURIComponent(v.game.creatorKey)}`;
+    try {
+      await navigator.clipboard.writeText(new URL(path, window.location.href).href);
+      setCreatorCopied(true);
+      setTimeout(() => setCreatorCopied(false), 1500);
+    } catch {
+      // clipboard unavailable (plain http on another host)
+    }
+  }
 
   const send: Send = async (path, method, body) => {
     setBusy(true);
@@ -56,6 +68,12 @@ export function HostDashboard({
         <div className="stack-sm">
           <h1>{v.game.title}</h1>
           <JoinLine code={code} playerCount={v.playerCount} badge={t("host.badge")} />
+          <div className="row row-tight">
+            <button className="btn btn-sm btn-ghost" onClick={copyCreatorLink}>
+              {creatorCopied ? t("chrome.copied") : t("host.creatorCopy")}
+            </button>
+          </div>
+          <p className="hint">{t("host.creatorHint")}</p>
         </div>
         <PhaseStepper
           phase={v.game.phase}
